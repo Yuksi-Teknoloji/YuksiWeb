@@ -19,10 +19,10 @@ export const metadata: Metadata = {
 
 export default function RootLayout({
   children,
-  modal,           // 👈 parallel route slot
+  modal,           // parallel route slot
 }: {
   children: React.ReactNode;
-  modal: React.ReactNode;   // 👈
+  modal: React.ReactNode;   // 
 }) {
   return (
     <html lang="tr">
