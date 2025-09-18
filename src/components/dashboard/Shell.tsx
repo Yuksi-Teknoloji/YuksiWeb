@@ -1,25 +1,16 @@
 // src/components/dashboard/Shell.tsx
+import Header from "./Header";
 import Sidebar from "./Sidebar";
-import type { NavGroup } from "../../app/config/nav";
+import type { NavGroup } from "@/types/roles";
 
 export default function DashboardShell({
-  title, nav, role, children,
-}: {
-  title: string;
-  role: string;
-  nav: NavGroup[];
-  children: React.ReactNode;
-}) {
+  title, nav, children,
+}: { title: string; nav: NavGroup[]; children: React.ReactNode }) {
   return (
     <div className="min-h-dvh bg-neutral-100 flex">
-      <Sidebar nav={nav} role={role} />
+      <Sidebar nav={nav} />
       <div className="flex-1">
-        <header className="sticky top-0 bg-white border-b px-4 py-3">
-          <div className="max-w-7xl mx-auto flex items-center justify-between">
-            <h1 className="text-lg font-semibold">{title}</h1>
-            <div className="text-sm text-neutral-500">Rol: {role}</div>
-          </div>
-        </header>
+        <Header title={title} />
         <main className="px-4 py-6">
           <div className="max-w-7xl mx-auto">{children}</div>
         </main>
