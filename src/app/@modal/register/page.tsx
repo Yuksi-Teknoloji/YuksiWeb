@@ -1,6 +1,6 @@
 // src/app/@modal/(..)register/page.tsx
-import Modal from "@/app/components/UI/Modal";
-import RegisterForm from "@/app/components/auth/RegisterForm";
+import Modal from "@/components/UI/Modal";
+import RegisterForm from "@/components/auth/RegisterForm";
 
 export default function RegisterModalPage() {
   return (

@@ -1,6 +1,6 @@
 // src/app/@modal/(..)login/page.tsx
-import Modal from "@/app/components/UI/Modal";
-import LoginForm from "@/app/components/auth/LoginForm";
+import Modal from "@/components/UI/Modal";
+import LoginForm from "@/components/auth/LoginForm";
 
 export default function LoginModalPage() {
   return (
