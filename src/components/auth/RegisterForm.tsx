@@ -24,59 +24,134 @@ export default function RegisterForm() {
   }
 
   return (
-    <form onSubmit={onSubmit} className="space-y-6">
-      <div className="grid grid-cols-2 gap-3">
-        <label className="block">
-          <span className="text-sm text-neutral-900">İsim</span>
-          <input name="firstName" className="input mt-1" placeholder="Adın" required/>
-        </label>
-        <label className="block">
-          <span className="text-sm text-neutral-900">Soy İsim</span>
-          <input name="lastName" className="input mt-1" placeholder="Soyadın"  required/>
-        </label>
+    <div className="w-full max-w-md bg-white/90 backdrop-blur-md p-8 rounded-2xl shadow-2xl border border-orange-200">
+      {/* Title */}
+      <div className="text-center mb-6">
+        <h1 className="text-3xl font-bold text-orange-600">Hesap Oluştur</h1>
+        <p className="text-gray-600 mt-2">Kayıt olmak sadece 1 dakikanı alır</p>
       </div>
 
-      <label className="block">
-        <span className="text-sm text-neutral-900">Telefon Numarası</span>
-        <input name="phone" type="tel" className="input mt-1" placeholder="+90 5xx xxx xx xx" pattern="^5[0-9]{9}$" maxLength={13} required/>
-      </label>
+      <form onSubmit={onSubmit} className="space-y-5">
+        {/* Name Fields */}
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              İsim
+            </label>
+            <input
+              name="firstName"
+              className="w-full px-4 py-2 border border-orange-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 outline-none text-gray-700"
+              placeholder="Adın"
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Soy İsim
+            </label>
+            <input
+              name="lastName"
+              className="w-full px-4 py-2 border border-orange-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 outline-none text-gray-700"
+              placeholder="Soyadın"
+              required
+            />
+          </div>
+        </div>
 
-      <label className="block">
-        <span className="text-sm text-neutral-900">E-mail</span>
-        <input name="email" type="email" className="input mt-1" placeholder="you@example.com" />
-      </label>
+        {/* Phone */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Telefon Numarası
+          </label>
+          <input
+            name="phone"
+            type="tel"
+            className="w-full px-4 py-2 border border-orange-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 outline-none text-gray-700"
+            placeholder="+90 5xx xxx xx xx"
+            pattern="^5[0-9]{9}$"
+            maxLength={13}
+            required
+          />
+        </div>
 
-      <label className="block">
-        <span className="text-sm text-neutral-900">Şifre</span>
-        <input name="password" type="password" className="input mt-1" placeholder="••••••••" />
-      </label>
+        {/* Email */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            E-mail
+          </label>
+          <input
+            name="email"
+            type="email"
+            className="w-full px-4 py-2 border border-orange-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 outline-none text-gray-700"
+            placeholder="you@example.com"
+            required
+          />
+        </div>
 
-      <label className="flex items-start gap-2">
-        <input name="acceptedTos" type="checkbox" className="mt-1 h-4 w-4 accent-brand" />
-        <span className="text-xs text-neutral-600">Kullanıcı sözleşmesini okudum, onaylıyorum.</span>
-      </label>
+        {/* Password */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Şifre
+          </label>
+          <input
+            name="password"
+            type="password"
+            className="w-full px-4 py-2 border border-orange-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 outline-none text-gray-700"
+            placeholder="••••••••"
+            required
+          />
+        </div>
 
-      <button
-        type="submit"
-        className="w-full rounded-full py-3 font-semibold text-white
-                   shadow-[0_10px_24px_rgba(255,91,4,0.35)]
-                   bg-gradient-to-b from-[#FF6A1A] to-[#FF5B04]
-                   hover:opacity-95 active:opacity-90">
-        Kayıt Ol
-      </button>
+        {/* Terms */}
+        <label className="flex items-start gap-2 text-sm text-gray-600">
+          <input
+            name="acceptedTos"
+            type="checkbox"
+            className="mt-1 h-4 w-4 accent-orange-600"
+            required
+          />
+          Kullanıcı sözleşmesini okudum, onaylıyorum.
+        </label>
 
-      <div className="divider">Veya devam et</div>
-      {/* sosyal butonlarınız varsa burada çağırabilirsiniz */}
+        {/* Submit Button */}
+        <button
+          type="submit"
+          className="w-full py-2 px-4 bg-orange-600 text-white font-semibold rounded-lg shadow-md hover:bg-orange-700 transition"
+        >
+          Kayıt Ol
+        </button>
+      </form>
 
-      <p className="text-center text-sm text-neutral-700">
-        Mevcut bir hesabım var • <Link href="/login" className="small-link">Giriş Yap</Link>
+      {/* Divider */}
+      <div className="my-6 flex items-center">
+        <div className="flex-grow border-t border-gray-300"></div>
+        <span className="px-3 text-gray-400 text-sm">Veya devam et</span>
+        <div className="flex-grow border-t border-gray-300"></div>
+      </div>
+
+      {/* Social login placeholder */}
+      <div className="flex gap-3">
+        <button className="flex-1 py-2 px-4 border border-orange-300 rounded-lg text-gray-700 hover:bg-orange-50 transition">
+          Google
+        </button>
+        <button className="flex-1 py-2 px-4 border border-orange-300 rounded-lg text-gray-700 hover:bg-orange-50 transition">
+          GitHub
+        </button>
+      </div>
+
+      {/* Already have account */}
+      <p className="text-sm text-center text-gray-600 mt-6">
+        Mevcut bir hesabım var •{" "}
+        <Link href="/login" className="text-orange-600 hover:underline">
+          Giriş Yap
+        </Link>
       </p>
 
       {result && (
-        <pre className="mt-2 whitespace-pre-wrap text-xs bg-neutral-50 border rounded-xl p-3">
-{result}
+        <pre className="mt-4 whitespace-pre-wrap text-xs bg-orange-50 border border-orange-200 rounded-xl p-3 text-gray-700">
+          {result}
         </pre>
       )}
-    </form>
+    </div>
   );
 }
