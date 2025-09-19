@@ -32,7 +32,7 @@ export default function Sidebar({ nav = [] as NavGroup[] }: { nav?: NavGroup[] }
                 {!collapsed && <span className="flex-1 text-sm font-medium">{g.title}</span>}
                 {!collapsed && (isOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />)}
               </button>
-                console.log("ADMIN NAV GROUPS:", nav);
+
               <div className={`${collapsed || !isOpen ? "hidden" : "mt-1 pl-3"}`}>
                 {g.items.map((it) => {
                   const active = pathname === it.href;
