@@ -6,7 +6,7 @@ import { useState } from "react";
 import type { NavGroup } from "@/types/roles";
 import { ChevronDown, ChevronRight, PanelLeftOpen, PanelLeftClose } from "lucide-react";
 
-export default function Sidebar({ nav }: { nav: NavGroup[] }) {
+export default function Sidebar({ nav = [] as NavGroup[] }: { nav?: NavGroup[] }) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
   const [open, setOpen] = useState<Record<string, boolean>>({});
@@ -32,7 +32,7 @@ export default function Sidebar({ nav }: { nav: NavGroup[] }) {
                 {!collapsed && <span className="flex-1 text-sm font-medium">{g.title}</span>}
                 {!collapsed && (isOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />)}
               </button>
-
+                console.log("ADMIN NAV GROUPS:", nav);
               <div className={`${collapsed || !isOpen ? "hidden" : "mt-1 pl-3"}`}>
                 {g.items.map((it) => {
                   const active = pathname === it.href;
