@@ -53,7 +53,7 @@ export default function SendNotificationPage() {
       </div>
 
       {/* Kart */}
-      <section className="rounded-2xl border border-neutral-200/70 bg-white shadow-sm">
+      <section className="rounded-2xl border border-neutral-200/70 bg-white shadow-sm soft-card">
         {/* Üst bar (buton sağda, mor) */}
         <div className="flex items-center justify-end gap-3 p-5 sm:p-6">
           <button

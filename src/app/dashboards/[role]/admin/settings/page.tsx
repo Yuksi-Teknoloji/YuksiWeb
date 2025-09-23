@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import { Trash2 } from 'lucide-react';
+import "@/styles/soft-ui.css"
 
 type Banner = { id: string; url: string };
 
@@ -20,6 +21,7 @@ export default function SettingsPage() {
   const [adInApp, setAdInApp] = React.useState('');
   const [adOutApp, setAdOutApp] = React.useState('');
   const [adOrder, setAdOrder] = React.useState('1');
+
   const [bannerFile, setBannerFile] = React.useState<File | null>(null);
   const [logoFile, setLogoFile] = React.useState<File | null>(null);
 
@@ -38,6 +40,12 @@ export default function SettingsPage() {
   }
 
   function saveAd() {
+    // YÜKLENEN RESMİ SAĞDAKİ LİSTEYE EKLE
+    if (bannerFile) {
+      const objectUrl = URL.createObjectURL(bannerFile);
+      setBanners((prev) => [...prev, { id: crypto.randomUUID(), url: objectUrl }]);
+      setBannerFile(null);
+    }
     alert('Reklam ayarları kaydedildi (demo).');
   }
 
@@ -56,7 +64,7 @@ export default function SettingsPage() {
       {/* Üst 2 kolon */}
       <div className="grid gap-6 lg:grid-cols-2">
         {/* Sol: Komisyon kutusu */}
-        <section className="rounded-2xl border border-neutral-200/70 bg-white p-6 shadow-sm">
+        <section className="rounded-2xl border border-neutral-200/70 bg-white p-6 shadow-sm soft-card">
           <div className="text-[15px] font-semibold text-neutral-700 mb-3">
             Komisyon Yüzde Oranı
           </div>
@@ -76,7 +84,7 @@ export default function SettingsPage() {
         </section>
 
         {/* Sağ: Reklam alanı */}
-        <section className="relative rounded-2xl border border-neutral-200/70 bg-white p-6 shadow-sm">
+        <section className="relative rounded-2xl border border-neutral-200/70 bg-white p-6 shadow-sm soft-card">
           <div className="grid gap-4">
             <div>
               <label className="label">Reklam Seçiniz</label>
@@ -151,18 +159,24 @@ export default function SettingsPage() {
       {/* Orta bölüm – sol geniş form + sağ banner listesi */}
       <div className="grid gap-6 lg:grid-cols-[1fr_420px]">
         {/* Sol büyük form */}
-        <section className="rounded-2xl border border-neutral-200/70 bg-white p-6 shadow-sm">
+        <section className="rounded-2xl border border-neutral-200/70 bg-white p-6 shadow-sm soft-card">
           <div className="grid gap-4">
             <div>
               <label className="label">App Adı</label>
-              <input className="w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 text-neutral-800 placeholder:text-neutral-400 outline-none ring-2 ring-transparent transition focus:bg-white focus:border-neutral-300 focus:ring-sky-200" 
-              value={appName} onChange={(e) => setAppName(e.target.value)} />
+              <input
+                className="w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 text-neutral-800 placeholder:text-neutral-400 outline-none ring-2 ring-transparent transition focus:bg-white focus:border-neutral-300 focus:ring-sky-200"
+                value={appName}
+                onChange={(e) => setAppName(e.target.value)}
+              />
             </div>
 
             <div>
               <label className="label">App başlığı</label>
-              <input className="w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 text-neutral-800 placeholder:text-neutral-400 outline-none ring-2 ring-transparent transition focus:bg-white focus:border-neutral-300 focus:ring-sky-200" 
-              value={appTitle} onChange={(e) => setAppTitle(e.target.value)} />
+              <input
+                className="w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 text-neutral-800 placeholder:text-neutral-400 outline-none ring-2 ring-transparent transition focus:bg-white focus:border-neutral-300 focus:ring-sky-200"
+                value={appTitle}
+                onChange={(e) => setAppTitle(e.target.value)}
+              />
             </div>
 
             <div>
@@ -190,13 +204,19 @@ export default function SettingsPage() {
             <div className="grid gap-4 md:grid-cols-2">
               <div>
                 <label className="label">Email</label>
-                <input className="w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 text-neutral-800 placeholder:text-neutral-400 outline-none ring-2 ring-transparent transition focus:bg-white focus:border-neutral-300 focus:ring-sky-200" 
-                value={email} onChange={(e) => setEmail(e.target.value)} />
+                <input
+                  className="w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 text-neutral-800 placeholder:text-neutral-400 outline-none ring-2 ring-transparent transition focus:bg-white focus:border-neutral-300 focus:ring-sky-200"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                />
               </div>
               <div>
                 <label className="label">Whatsapp</label>
-                <input className="w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 text-neutral-800 placeholder:text-neutral-400 outline-none ring-2 ring-transparent transition focus:bg-white focus:border-neutral-300 focus:ring-sky-200" 
-                value={whatsapp} onChange={(e) => setWhatsapp(e.target.value)} />
+                <input
+                  className="w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 text-neutral-800 placeholder:text-neutral-400 outline-none ring-2 ring-transparent transition focus:bg-white focus:border-neutral-300 focus:ring-sky-200"
+                  value={whatsapp}
+                  onChange={(e) => setWhatsapp(e.target.value)}
+                />
               </div>
             </div>
 
@@ -265,7 +285,7 @@ export default function SettingsPage() {
         </section>
 
         {/* Sağ: Banner önizleme listesi */}
-        <aside className="rounded-2xl border border-neutral-200/70 bg-white p-4 shadow-sm">
+        <aside className="rounded-2xl border border-neutral-200/70 bg-white p-4 shadow-sm soft-card">
           <div className="space-y-4">
             {banners.map((b) => (
               <div
@@ -280,7 +300,6 @@ export default function SettingsPage() {
                   <Trash2 className="h-4 w-4" />
                 </button>
 
-                {/* Görsel */}
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={b.url}
@@ -297,7 +316,7 @@ export default function SettingsPage() {
   );
 }
 
-/* Küçük label helper’ı (önceki sayfalarla uyum) */
+/* Küçük label helper’ı (opsiyonel) */
 function Label({ children }: { children: React.ReactNode }) {
   return <div className="text-sm font-medium text-neutral-700">{children}</div>;
 }

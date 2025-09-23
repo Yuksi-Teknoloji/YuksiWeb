@@ -1,3 +1,4 @@
+// src/app/dashboards/[role]/admin/system/additional-costs/page.tsx
 'use client';
 
 import * as React from 'react';
@@ -12,25 +13,23 @@ type AdditionalCost = {
 const CARRIER_OPTIONS = ['Kurye', 'Araç', 'Taşıyıcıpaketi'] as const;
 
 const initialRows: AdditionalCost[] = [
-  { id: 'ac-1', carrier: 'Kurye',         service: 'Bahşiş - 10TL',        price: 10 },
-  { id: 'ac-2', carrier: 'Kurye',         service: 'Hediye Paketi',        price: 100 },
-  { id: 'ac-3', carrier: 'Araç',          service: 'Taşıma Yardımı',       price: 100 },
-  { id: 'ac-4', carrier: 'Araç',          service: 'İndir - Bindirme Ücreti', price: 1000 },
-  { id: 'ac-5', carrier: 'Taşıyıcıpaketi',service: 'Haftalık Paket',       price: 1000 },
-  { id: 'ac-6', carrier: 'Araç',          service: 'Tüm Yükleme İşçiliği', price: 2000 },
-  { id: 'ac-7', carrier: 'Taşıyıcıpaketi',service: 'Aylık Paket',          price: 2500 },
+  { id: 'ac-1', carrier: 'Kurye',          service: 'Bahşiş - 10TL',           price: 10 },
+  { id: 'ac-2', carrier: 'Kurye',          service: 'Hediye Paketi',           price: 100 },
+  { id: 'ac-3', carrier: 'Araç',           service: 'Taşıma Yardımı',          price: 100 },
+  { id: 'ac-4', carrier: 'Araç',           service: 'İndir - Bindirme Ücreti', price: 1000 },
+  { id: 'ac-5', carrier: 'Taşıyıcıpaketi', service: 'Haftalık Paket',          price: 1000 },
+  { id: 'ac-6', carrier: 'Araç',           service: 'Tüm Yükleme İşçiliği',    price: 2000 },
+  { id: 'ac-7', carrier: 'Taşıyıcıpaketi', service: 'Aylık Paket',             price: 2500 },
 ];
 
 export default function AdditionalCostsPage() {
   const [rows, setRows] = React.useState<AdditionalCost[]>(initialRows);
+  const [open, setOpen] = React.useState(false);
 
-  const handleAdd = () => {
-    const n = rows.length + 1;
-    setRows(prev => [
-      ...prev,
-      { id: crypto.randomUUID(), carrier: 'Kurye', service: `Yeni Ek Hizmet ${n}`, price: 0 },
-    ]);
-  };
+  function handleCreate(item: Omit<AdditionalCost, 'id'>) {
+    setRows(prev => [{ id: crypto.randomUUID(), ...item }, ...prev]);
+    setOpen(false);
+  }
 
   const handleDelete = (id: string) => {
     setRows(prev => prev.filter(r => r.id !== id));
@@ -64,7 +63,7 @@ export default function AdditionalCostsPage() {
         {/* Üst şerit */}
         <div className="flex items-center justify-between p-5 sm:p-6">
           <button
-            onClick={handleAdd}
+            onClick={() => setOpen(true)}
             className="rounded-xl bg-sky-500 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-sky-600 active:translate-y-px"
           >
             Yeni Ek Hizmet Ekle
@@ -90,7 +89,6 @@ export default function AdditionalCostsPage() {
                 <tr key={r.id} className="border-t border-neutral-200/70 align-middle">
                   {/* Taşıyıcı */}
                   <td className="px-6 py-4">
-                    {/* İstersen select’i kaldırıp düz text yapabilirsin */}
                     <select
                       value={r.carrier}
                       onChange={e => handleCarrierChange(r.id, e.target.value)}
@@ -145,6 +143,114 @@ export default function AdditionalCostsPage() {
           </table>
         </div>
       </section>
+
+      {open && (
+        <AddAdditionalCostModal
+          onClose={() => setOpen(false)}
+          onCreate={handleCreate}
+        />
+      )}
+    </div>
+  );
+}
+
+/* ---------------- Modal: Yeni Ürün/Ek Hizmet ekle ---------------- */
+
+function AddAdditionalCostModal({
+  onClose,
+  onCreate,
+}: {
+  onClose: () => void;
+  onCreate: (item: Omit<AdditionalCost, 'id'>) => void;
+}) {
+  const [carrier, setCarrier] = React.useState<string>('');
+  const [service, setService] = React.useState<string>('');
+  const [price, setPrice] = React.useState<string>('');
+
+  const canSave = carrier !== '' && service.trim() !== '' && price !== '';
+
+  function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!canSave) return;
+    onCreate({
+      carrier,
+      service: service.trim(),
+      price: Number(price) || 0,
+    });
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4" role="dialog" aria-modal="true">
+      <div className="w-full max-w-4xl rounded-2xl bg-white shadow-xl">
+        {/* Header */}
+        <div className="flex items-center justify-between border-b px-5 py-4">
+          <h3 className="text-2xl font-semibold">Yeni Ürün ekle</h3>
+          <button
+            className="rounded-full p-2 hover:bg-neutral-100"
+            onClick={onClose}
+            aria-label="Kapat"
+          >
+            ✕
+          </button>
+        </div>
+
+        {/* Body */}
+        <form onSubmit={submit} className="space-y-4 p-5">
+          <div>
+            <label className="mb-1 block text-sm font-medium text-neutral-700">Taşıyıcı Tipi</label>
+            <select
+              value={carrier}
+              onChange={(e) => setCarrier(e.target.value)}
+              className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 text-neutral-800 outline-none ring-2 ring-transparent transition focus:border-neutral-300 focus:ring-sky-200"
+            >
+              <option value="">Seçiniz</option>
+              {CARRIER_OPTIONS.map((opt) => (
+                <option key={opt} value={opt}>
+                  {opt}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium text-neutral-700">Hizmet Adı</label>
+            <input
+              value={service}
+              onChange={(e) => setService(e.target.value)}
+              className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 text-neutral-800 outline-none ring-2 ring-transparent transition focus:border-neutral-300 focus:ring-sky-200"
+            />
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium text-neutral-700">Fiyat</label>
+            <input
+              type="number"
+              inputMode="decimal"
+              value={price}
+              onChange={(e) => setPrice(e.target.value)}
+              className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 text-neutral-800 outline-none ring-2 ring-transparent transition focus:border-neutral-300 focus:ring-sky-200"
+            />
+          </div>
+
+          {/* Footer */}
+          <div className="mt-6 flex items-center justify-end gap-3">
+            <button
+              type="submit"
+              disabled={!canSave}
+              className="rounded-xl bg-emerald-500 px-6 py-2 text-sm font-semibold text-white shadow hover:bg-emerald-600 disabled:opacity-50"
+            >
+              Kaydet
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-xl bg-rose-100 px-6 py-2 text-sm font-semibold text-rose-600 hover:bg-rose-200"
+            >
+              İptal
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }

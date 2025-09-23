@@ -52,7 +52,7 @@ export default function UserListPage() {
       </div>
 
       {/* Kart */}
-      <section className="rounded-2xl border border-neutral-200/70 bg-white shadow-sm">
+      <section className="rounded-2xl border border-neutral-200/70 bg-white shadow-sm soft-card">
         {/* Üst bar: Yeni butonu sağda yeşil */}
         <div className="flex items-center justify-end p-5 sm:p-6">
           <Link
@@ -66,7 +66,7 @@ export default function UserListPage() {
         <div className="h-px w-full bg-neutral-200/70" />
 
         {/* Kullanıcı işlemleri + arama */}
-        <div className="p-5 sm:p-6">
+        <div className="p-5 sm:p-6 soft-card">
           <h2 className="mb-2 text-lg font-semibold">Kullanıcı İşlemleri</h2>
           <input
             value={q}

@@ -5,17 +5,17 @@ import * as React from 'react';
 // --- Tipler ---
 type TransportPackage = {
   id: string;
-  carrier: string;     // Taşıyıcı
-  days: number;        // Talep Edilen Hizmet (gün)
-  price: number;       // Fiyat (₺)
+  carrier: string;     // Paket/Hizmet Adı
+  days: number;        // Gün
+  price: number;       // ₺
 };
 
 type PaymentRow = {
   id: string;
-  date: string;        // ISO ya da gösterilecek string
-  carrier: string;     // Taşıyıcı adı
-  days: number;        // Talep Edilen Gün
-  price: number;       // ₺
+  date: string;
+  carrier: string;
+  days: number;
+  price: number;
   status: 'success' | 'failed' | 'pending';
 };
 
@@ -28,7 +28,7 @@ const initialPayments: PaymentRow[] = [
   {
     id: 'pm-1',
     date: '20.09.2025 20:09',
-    carrier: 'ebubekir deregözü\n5469060844\n01fbu76',
+    carrier: 'emre kuzey\n5319677149\n06ank06',
     days: 30,
     price: 5300,
     status: 'failed',
@@ -37,16 +37,14 @@ const initialPayments: PaymentRow[] = [
 
 export default function TransportPackagesPage() {
   const [rows, setRows] = React.useState<TransportPackage[]>(initialPackages);
-  const [payments, setPayments] = React.useState<PaymentRow[]>(initialPayments);
+  const [payments] = React.useState<PaymentRow[]>(initialPayments);
+  const [open, setOpen] = React.useState(false);
 
-  // --- Handlers: Paketler ---
-  const handleAdd = () => {
-    const n = rows.length + 1;
-    setRows(prev => [
-      ...prev,
-      { id: crypto.randomUUID(), carrier: `Yeni Paket ${n}`, days: 30, price: 0 },
-    ]);
-  };
+  // Modal kaydet
+  function handleCreate(item: Omit<TransportPackage, 'id'>) {
+    setRows(prev => [{ id: crypto.randomUUID(), ...item }, ...prev]);
+    setOpen(false);
+  }
 
   const handleDelete = (id: string) => {
     setRows(prev => prev.filter(r => r.id !== id));
@@ -56,19 +54,18 @@ export default function TransportPackagesPage() {
     const r = rows.find(x => x.id === id);
     if (!r) return;
 
-    const newCarrier = prompt('Taşıyıcı / Paket Adı', r.carrier) ?? r.carrier;
-    const newDaysStr = prompt('Talep Edilen Hizmet (gün)', String(r.days)) ?? String(r.days);
+    const newCarrier = prompt('Paket / Hizmet Adı', r.carrier) ?? r.carrier;
+    const newDaysStr = prompt('Süre (gün)', String(r.days)) ?? String(r.days);
     const newPriceStr = prompt('Fiyat (₺)', String(r.price)) ?? String(r.price);
 
     const newDays = Math.max(0, Number(newDaysStr) || 0);
     const newPrice = Math.max(0, Number(newPriceStr) || 0);
 
-    setRows(prev => prev.map(x => (x.id === id ? { ...x, carrier: newCarrier, days: newDays, price: newPrice } : x)));
-  };
-
-  // --- Handlers: Ödemeler ---
-  const markFailed = (id: string) => {
-    setPayments(prev => prev.map(p => (p.id === id ? { ...p, status: 'failed' } : p)));
+    setRows(prev =>
+      prev.map(x =>
+        x.id === id ? { ...x, carrier: newCarrier, days: newDays, price: newPrice } : x,
+      ),
+    );
   };
 
   return (
@@ -83,7 +80,7 @@ export default function TransportPackagesPage() {
         {/* Üst şerit */}
         <div className="flex items-center justify-between p-5 sm:p-6">
           <button
-            onClick={handleAdd}
+            onClick={() => setOpen(true)}
             className="rounded-xl bg-sky-500 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-sky-600 active:translate-y-px"
           >
             Yeni Paket Ekle
@@ -143,7 +140,7 @@ export default function TransportPackagesPage() {
           </table>
         </div>
 
-        {/* Altta mor progress görseli (screenshot benzeri) */}
+        {/* Altta mor progress görseli */}
         <div className="px-5 pb-5">
           <div className="h-2 rounded-full bg-purple-200/60">
             <div className="h-2 w-40 rounded-full bg-purple-400/60" />
@@ -151,7 +148,7 @@ export default function TransportPackagesPage() {
         </div>
       </section>
 
-      {/* KART 2: Ödemeler */}
+      {/* KART 2: Ödemeler (değiştirilmedi) */}
       <section className="rounded-2xl border border-neutral-200/70 bg-white shadow-sm">
         <header className="p-5 sm:p-6">
           <h2 className="text-2xl font-semibold tracking-tight">Ödemeler</h2>
@@ -171,7 +168,7 @@ export default function TransportPackagesPage() {
               </tr>
             </thead>
             <tbody>
-              {payments.map(p => (
+              {initialPayments.map(p => (
                 <tr key={p.id} className="border-t border-neutral-200/70 align-top">
                   <td className="px-6 py-4 whitespace-nowrap font-medium text-neutral-900">{p.date}</td>
                   <td className="px-6 py-4 whitespace-pre-line text-neutral-900">{p.carrier}</td>
@@ -195,7 +192,7 @@ export default function TransportPackagesPage() {
                 </tr>
               ))}
 
-              {payments.length === 0 && (
+              {initialPayments.length === 0 && (
                 <tr>
                   <td colSpan={5} className="px-6 py-12 text-center text-sm text-neutral-500">
                     Henüz ödeme kaydı yok.
@@ -206,6 +203,109 @@ export default function TransportPackagesPage() {
           </table>
         </div>
       </section>
+
+      {open && (
+        <AddPackageModal
+          onClose={() => setOpen(false)}
+          onCreate={handleCreate}
+        />
+      )}
+    </div>
+  );
+}
+
+/* ---------------- Modal: Yeni Paket Ekle ---------------- */
+
+function AddPackageModal({
+  onClose,
+  onCreate,
+}: {
+  onClose: () => void;
+  onCreate: (item: Omit<TransportPackage, 'id'>) => void;
+}) {
+  const [title, setTitle] = React.useState('');
+  const [days, setDays] = React.useState<string>('');    // input raw
+  const [price, setPrice] = React.useState<string>('');  // input raw
+
+  const canSave = title.trim() !== '' && days !== '' && price !== '';
+
+  function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!canSave) return;
+    onCreate({
+      carrier: title.trim(),
+      days: Math.max(0, Number(days) || 0),
+      price: Math.max(0, Number(price) || 0),
+    });
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4" role="dialog" aria-modal="true">
+      <div className="w-full max-w-4xl rounded-2xl bg-white shadow-xl">
+        {/* Header */}
+        <div className="flex items-center justify-between border-b px-5 py-4">
+          <h3 className="text-2xl font-semibold">Yeni Ürün ekle</h3>
+          <button
+            className="rounded-full p-2 hover:bg-neutral-100"
+            onClick={onClose}
+            aria-label="Kapat"
+          >
+            ✕
+          </button>
+        </div>
+
+        {/* Body */}
+        <form onSubmit={submit} className="space-y-4 p-5">
+          <div>
+            <label className="mb-1 block text-sm font-medium text-neutral-700">Hizmet Adı</label>
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 text-neutral-800 outline-none ring-2 ring-transparent transition focus:border-neutral-300 focus:ring-sky-200"
+            />
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium text-neutral-700">Süre / gün</label>
+            <input
+              type="number"
+              inputMode="numeric"
+              value={days}
+              onChange={(e) => setDays(e.target.value)}
+              className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 text-neutral-800 outline-none ring-2 ring-transparent transition focus:border-neutral-300 focus:ring-sky-200"
+            />
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium text-neutral-700">Fiyat</label>
+            <input
+              type="number"
+              inputMode="decimal"
+              value={price}
+              onChange={(e) => setPrice(e.target.value)}
+              className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 text-neutral-800 outline-none ring-2 ring-transparent transition focus:border-neutral-300 focus:ring-sky-200"
+            />
+          </div>
+
+          {/* Footer */}
+          <div className="mt-6 flex items-center justify-end gap-3">
+            <button
+              type="submit"
+              disabled={!canSave}
+              className="rounded-xl bg-emerald-500 px-6 py-2 text-sm font-semibold text-white shadow hover:bg-emerald-600 disabled:opacity-50"
+            >
+              Kaydet
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-xl bg-rose-100 px-6 py-2 text-sm font-semibold text-rose-600 hover:bg-rose-200"
+            >
+              İptal
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }

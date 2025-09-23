@@ -94,7 +94,7 @@ export default function CompanyListPage({
       <h1 className="mb-4 text-2xl font-semibold">Şirket Listesi</h1>
 
       {/* Arama / Filtre Kartı */}
-      <section className="rounded-2xl border border-neutral-200/70 bg-white p-6 shadow-sm">
+      <section className="rounded-2xl border border-neutral-200/70 bg-white p-6 shadow-sm soft-card">
         <h2 className="mb-4 text-xl font-semibold text-neutral-700">Şirket Bul</h2>
 
         <input

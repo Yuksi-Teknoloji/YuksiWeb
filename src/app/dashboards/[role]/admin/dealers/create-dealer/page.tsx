@@ -34,7 +34,7 @@ export default function CreateDealerPage({ params }: { params: { role: string } 
 
       <div className="grid gap-6 lg:grid-cols-[420px_1fr]">
         {/* Sol Kart */}
-        <section className="rounded-2xl border border-neutral-200/70 bg-white p-6 shadow-sm">
+        <section className="rounded-2xl border border-neutral-200/70 bg-white p-6 shadow-sm soft-card">
           <div className="grid place-items-center">
             <div className="mb-6 grid h-20 w-20 place-items-center rounded-full bg-neutral-200 text-xs text-neutral-600">
               300 x 300
@@ -84,7 +84,7 @@ export default function CreateDealerPage({ params }: { params: { role: string } 
         </section>
 
         {/* Sağ Kart */}
-        <section className="relative rounded-2xl border border-neutral-200/70 bg-white p-6 shadow-sm">
+        <section className="relative rounded-2xl border border-neutral-200/70 bg-white p-6 shadow-sm soft-card">
           <div className="space-y-5">
             <div>
               <label className="mb-1 block text-sm font-semibold text-neutral-700">Şirket Adı</label>
@@ -180,7 +180,7 @@ export default function CreateDealerPage({ params }: { params: { role: string } 
       </div>
            
            {/* ALT: Evraklar bölümü */}
-      <section className="mt-6 rounded-2xl border border-neutral-200/70 bg-white p-6 shadow-sm">
+      <section className="mt-6 rounded-2xl border border-neutral-200/70 bg-white p-6 shadow-sm soft-card">
         <h2 className="text-2xl font-semibold text-neutral-800">Evraklar</h2>
 
         <div className="mt-4">

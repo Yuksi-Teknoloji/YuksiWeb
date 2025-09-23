@@ -1,58 +1,97 @@
 // src/components/dashboard/Sidebar.tsx
 "use client";
+
 import Link from "next/link";
 import { usePathname, useParams } from "next/navigation";
 import { useState } from "react";
 import type { NavGroup } from "@/types/roles";
-import { ChevronDown, ChevronRight, PanelLeftOpen, PanelLeftClose } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 
 export default function Sidebar({ nav = [] as NavGroup[] }: { nav?: NavGroup[] }) {
   const pathname = usePathname();
   const { role } = useParams<{ role: string }>();
-  const [collapsed, setCollapsed] = useState(false);
-  const [open, setOpen] = useState<Record<string, boolean>>({});
+
+  // Her grup için açık/kapalı state
+  const [open, setOpen] = useState<Record<string, boolean>>(
+    () =>
+      Object.fromEntries(nav.map((g) => [g.title, true])) as Record<string, boolean>
+  );
 
   return (
-    <aside className={`h-dvh sticky top-0 bg-[#0F172A] text-white transition-all ${collapsed ? "w-[68px]" : "w-64"}`}>
-      <div className="flex items-center justify-between px-3 py-3 border-b border-white/10">
-        <div className={`font-semibold ${collapsed ? "opacity-0 pointer-events-none w-0" : ""}`}>PANEL</div>
-        <button onClick={() => setCollapsed(!collapsed)} className="p-2 rounded-md hover:bg-white/10">
-          {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
-        </button>
+    <aside
+      className="
+        sticky top-0 h-dvh w-72 shrink-0
+        bg-white border-r border-neutral-200
+        flex flex-col overflow-hidden
+      "
+    >
+      {/* Header */}
+      <div className="px-5 pt-6 pb-4">
+        <div className="text-xl font-semibold text-neutral-900">Yüksi Kontrol Paneli</div>
       </div>
 
-      <nav className="p-2">
-        {nav.map((g) => {
-          const isOpen = open[g.title] ?? true;
+      {/* Scrollable area */}
+      <nav
+        className="
+          flex-1 overflow-y-auto px-3 pb-6
+          [scrollbar-width:thin]
+          [&::-webkit-scrollbar]:w-2
+          [&::-webkit-scrollbar-thumb]:bg-neutral-300/60 [&::-webkit-scrollbar-thumb]:rounded
+          [&::-webkit-scrollbar-track]:bg-transparent
+          space-y-4
+        "
+      >
+        {nav.map((group) => {
+          const isOpen = open[group.title] ?? true;
           return (
-            <div key={g.title} className="mb-2">
+            <div key={group.title} className="rounded-2xl">
+              {/* Grup başlığı (accordion trigger) */}
               <button
-                onClick={() => setOpen((s) => ({ ...s, [g.title]: !isOpen }))}
-                className="w-full flex items-center gap-2 px-2 py-2 rounded-md hover:bg-white/10"
+                onClick={() => setOpen((s) => ({ ...s, [group.title]: !isOpen }))}
+                className="
+                  w-full flex items-center justify-between
+                  rounded-xl px-4 py-3
+                  bg-orange-50 text-orange-700
+                  hover:bg-orange-100 transition
+                "
               >
-                {!collapsed && <span className="flex-1 text-sm font-medium">{g.title}</span>}
-                {!collapsed && (isOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />)}
+                <span className="text-sm font-semibold">{group.title}</span>
+                <ChevronRight
+                  className={`h-4 w-4 transition-transform ${
+                    isOpen ? "rotate-90" : "rotate-0"
+                  }`}
+                />
               </button>
 
-              <div className={`${collapsed || !isOpen ? "hidden" : "mt-1 pl-3"}`}>
-                {g.items.map((it) => {
-                  // it.href: "/admin/..."  -> gerçek yol:
-                  const fullPath = `/dashboards/${role}${it.href}`;
-                  const active = pathname === fullPath || pathname.startsWith(fullPath + "/");
+              {/* Grup içerikleri */}
+              <ul className={`${isOpen ? "mt-2" : "hidden"} space-y-2 px-1`}>
+                {group.items.map((it) => {
+                  const href = `/dashboards/${role}${it.href}`;
+                  const active =
+                    pathname === href || pathname.startsWith(href + "/");
 
                   return (
-                    <Link
-                      key={it.href}
-                      href={fullPath} // <-- string veriyoruz, 'params' yok
-                      className={`block text-sm rounded-md px-2 py-1.5 mb-1 ${
-                        active ? "bg-white text-[#0F172A] font-semibold" : "text-white/85 hover:bg-white/10"
-                      }`}
-                    >
-                      {it.label}
-                    </Link>
+                    <li key={it.href}>
+                      <Link
+                        href={href}
+                        className={[
+                          "flex items-center justify-between rounded-xl px-4 py-3 transition",
+                          active
+                            ? "bg-orange-500 text-white shadow-sm"
+                            : "text-orange-600 hover:bg-orange-50",
+                        ].join(" ")}
+                      >
+                        <span className="text-sm font-medium">{it.label}</span>
+                        <ChevronRight
+                          className={`h-4 w-4 ${
+                            active ? "text-white" : "text-orange-500"
+                          }`}
+                        />
+                      </Link>
+                    </li>
                   );
                 })}
-              </div>
+              </ul>
             </div>
           );
         })}

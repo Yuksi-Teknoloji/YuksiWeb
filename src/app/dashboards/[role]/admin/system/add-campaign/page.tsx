@@ -67,7 +67,7 @@ export default function AddCampaignPage() {
       </div>
 
       {/* Kart */}
-      <section className="rounded-2xl border border-neutral-200/70 bg-white shadow-sm">
+      <section className="rounded-2xl border border-neutral-200/70 bg-white shadow-sm soft-card">
         <header className="p-5 sm:p-6">
           <h2 className="text-xl font-semibold">Yeni Kampanya Oluştur</h2>
         </header>

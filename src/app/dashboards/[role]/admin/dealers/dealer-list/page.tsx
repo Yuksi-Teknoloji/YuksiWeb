@@ -58,7 +58,7 @@ export default function DealerListPage() {
       <h1 className="text-2xl font-semibold tracking-tight">Bayi Listesi</h1>
 
       {/* Arama & filtre kutusu */}
-      <section className="rounded-2xl border border-neutral-200/70 bg-white shadow-sm">
+      <section className="rounded-2xl border border-neutral-200/70 bg-white shadow-sm soft-card">
         <div className="p-6">
           <h2 className="mb-3 text-lg font-semibold">Kullanıcı İşlemleri</h2>
 

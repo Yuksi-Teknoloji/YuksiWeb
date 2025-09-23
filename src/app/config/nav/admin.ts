@@ -6,7 +6,7 @@ const adminNav: NavGroup[] = [
     title: "Genel",
     items: [
       { label: "Ayarlar", href: "/admin/settings" },
-      { label: "Şehir Fiyatları", href: "/admin/shipments/new" },
+      { label: "Şehir Fiyatları", href: "/admin/city-prices" },
     ],
 
   },
@@ -44,7 +44,7 @@ const adminNav: NavGroup[] = [
   {
     title: "Kullanıcılar",
     items: [
-      { label: "Yetkililer", href: "/admin/user-list" },
+      { label: "Kullanıcı Listesi", href: "/admin/user-list" },
       { label: "Roller & İzinler", href: "/admin/users/roles" },
     ],
   },
@@ -65,6 +65,7 @@ const adminNav: NavGroup[] = [
       { label: "Yük Tipleri", href: "/admin/system/load-types" },
       { label: "Ek Fiyatlar", href: "/admin/system/additional-costs" },
       { label: "Taşıma Paketleri", href: "/admin/system/transport-packages" },
+      { label: "Km Fiyatları", href: "/admin/system/km-prices" },
       { label: "Kampanya Kodları", href: "/admin/system/add-campaign" },
       { label: "Bildirim Gönder", href: "/admin/system/send-notification" },
       { label: "Parametreler", href: "/admin/system/parameters" },

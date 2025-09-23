@@ -105,13 +105,13 @@ export default function CreateCompaniesPage() {
   }
 
   return (
-    <div className="sticky top-0 z-20 border-b bg-neutral-50/90 backdrop-blur">
+    <div className="sticky top-0 z-20 border-b bg-neutral-50/90 backdrop-blur soft-row">
       {/* Adım kartları */}
       <div className="py-3">
     <Stepper step={step} setStep={setStep} />
   </div>
 
-      <form onSubmit={onSubmit} className="space-y-6">
+      <form onSubmit={onSubmit} className="space-y-6 soft-row">
         {step === 1 && (
           <Card title="Genel Özellikler">
             <dl className="grid gap-6">

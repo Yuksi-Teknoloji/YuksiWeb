@@ -81,7 +81,7 @@ export default function CreateLoadPage() {
       </div>
 
       {/* Gönderim Tipi */}
-      <section className="rounded-2xl border border-neutral-200/70 bg-white p-6 shadow-sm">
+      <section className="rounded-2xl border border-neutral-200/70 bg-white p-6 shadow-sm soft-card">
         <h2 className="mb-4 text-lg font-semibold">Gönderim Tipi</h2>
         <div className="flex gap-3">
           <button
@@ -112,7 +112,7 @@ export default function CreateLoadPage() {
       </section>
 
       {/* Üst alanlar */}
-      <section className="rounded-2xl border border-neutral-200/70 bg-white p-6 shadow-sm">
+      <section className="rounded-2xl border border-neutral-200/70 bg-white p-6 shadow-sm soft-card">
         <div className="grid gap-5 md:grid-cols-2">
           {/* Taşıyıcı Tipi */}
           <div>
@@ -221,7 +221,7 @@ export default function CreateLoadPage() {
       </section>
 
       {/* Alt alanlar */}
-      <section className="rounded-2xl border border-neutral-200/70 bg-white p-6 shadow-sm">
+      <section className="rounded-2xl border border-neutral-200/70 bg-white p-6 shadow-sm soft-card">
         {/* Kampanya */}
         <div className="mb-6">
           <label className="mb-2 block text-sm font-semibold">Kampanya Kodu</label>

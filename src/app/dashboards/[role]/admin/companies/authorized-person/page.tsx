@@ -71,12 +71,12 @@ export default function AuthorizedPersonPage({ params }: { params: { role: strin
   }
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-6">
+    <div className="mx-auto max-w-7xl px-4 py-6 soft-card">
       <h1 className="mb-4 text-3xl font-semibold">Kullanıcı Listesi</h1>
 
       <section className="rounded-2xl border border-neutral-200/70 bg-white shadow-sm">
         {/* üst çubuk */}
-        <div className="flex items-center justify-between gap-3 border-b border-neutral-200/70 px-5 py-4">
+        <div className="flex items-center justify-between gap-3 border-b border-neutral-200/70 px-5 py-4 soft-card">
           <div className="text-[18px] font-semibold text-neutral-800">Kullanıcı İşlemleri</div>
           <button
             className="rounded-xl bg-emerald-500 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-600 active:translate-y-px"
@@ -87,7 +87,7 @@ export default function AuthorizedPersonPage({ params }: { params: { role: strin
         </div>
 
         {/* arama */}
-        <div className="px-5 pb-4 pt-5">
+        <div className="px-5 pb-4 pt-5 soft-card">
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}

@@ -49,7 +49,7 @@ export default function ShippingListPage() {
         <h1 className="text-2xl font-semibold tracking-tight">Taşıma Listesi</h1>
       </div>
 
-      <section className="rounded-2xl border border-neutral-200/70 bg-white shadow-sm">
+      <section className="rounded-2xl border border-neutral-200/70 bg-white shadow-sm soft-card">
         {/* Filtreler */}
         <div className="p-4 sm:p-6">
           <div className="grid gap-4 md:grid-cols-[minmax(240px,1fr)_220px_220px_220px_220px_auto] items-end">
