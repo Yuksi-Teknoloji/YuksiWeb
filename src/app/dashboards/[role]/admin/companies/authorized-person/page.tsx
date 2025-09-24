@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import Link from 'next/link';
 
 type Person = {
   id: string;
@@ -76,14 +77,13 @@ export default function AuthorizedPersonPage({ params }: { params: { role: strin
 
       <section className="rounded-2xl border border-neutral-200/70 bg-white shadow-sm">
         {/* üst çubuk */}
-        <div className="flex items-center justify-between gap-3 border-b border-neutral-200/70 px-5 py-4 soft-card">
-          <div className="text-[18px] font-semibold text-neutral-800">Kullanıcı İşlemleri</div>
-          <button
-            className="rounded-xl bg-emerald-500 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-600 active:translate-y-px"
-            onClick={() => alert('Yeni kullanıcı oluştur (demo)')}
+        <div className="flex items-center justify-end p-5 sm:p-6">
+          <Link
+            href="../user-list/edit-profile"
+            className="rounded-xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-600 active:translate-y-px"
           >
             Yeni Kullanıcı Oluştur
-          </button>
+          </Link>
         </div>
 
         {/* arama */}

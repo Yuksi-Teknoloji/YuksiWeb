@@ -52,7 +52,7 @@ export default function UserListPage() {
       </div>
 
       {/* Kart */}
-      <section className="rounded-2xl border border-neutral-200/70 bg-white shadow-sm soft-card">
+      <section className="rounded-2xl border border-neutral-200/70 bg-white shadow-sm ">
         {/* Üst bar: Yeni butonu sağda yeşil */}
         <div className="flex items-center justify-end p-5 sm:p-6">
           <Link
@@ -71,8 +71,8 @@ export default function UserListPage() {
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Arama yap"
-            className="mb-1 w-full rounded-xl border border-neutral-300 px-3 py-2 outline-none ring-2 ring-transparent transition focus:border-neutral-300 focus:ring-sky-200"
+            placeholder="Arama yap" 
+            className="mb-1 w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none ring-2 ring-transparent transition focus:border-neutral-300 focus:ring-sky-200"
           />
           <p className="text-xs text-neutral-500">Ad, Soyad, Plaka, Telefon no</p>
         </div>

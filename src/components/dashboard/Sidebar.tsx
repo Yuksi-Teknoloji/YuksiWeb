@@ -27,7 +27,7 @@ export default function Sidebar({ nav = [] as NavGroup[] }: { nav?: NavGroup[] }
     >
       {/* Header */}
       <div className="px-5 pt-6 pb-4">
-        <div className="text-xl font-semibold text-neutral-900">Yüksi Kontrol Paneli</div>
+        <div className="text-xl font-extrabold text-orange-500">Yüksi Kontrol Paneli</div>
       </div>
 
       {/* Scrollable area */}

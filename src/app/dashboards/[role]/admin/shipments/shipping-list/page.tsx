@@ -52,29 +52,31 @@ export default function ShippingListPage() {
       <section className="rounded-2xl border border-neutral-200/70 bg-white shadow-sm soft-card">
         {/* Filtreler */}
         <div className="p-4 sm:p-6">
-          <div className="grid gap-4 md:grid-cols-[minmax(240px,1fr)_220px_220px_220px_220px_auto] items-end">
+          <div className="-ml-2 md:-ml-4 grid gap-4 md:grid-cols-[minmax(240px,1fr)_120px_140px_160px_160px_auto] items-end">
             {/* isim, plaka veya telefon */}
-            <div>
+            <div className='w-full max-w-[290px]'>
               <div className="mb-1 text-sm font-semibold text-neutral-700">
-                isim, plaka veya telefon no
+                İsim,Plaka veya Telefon No
               </div>
               <input
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
                 placeholder="Plaka veya telefon no"
-                className="w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 text-neutral-800 outline-none ring-2 ring-transparent transition placeholder:text-neutral-400 focus:bg-white focus:ring-sky-200"
+                className="w-full rounded-xl border border-neutral-300 bg-neutral-100 px-2.5 py-1.5 text-sm
+               text-neutral-800 outline-none ring-2 ring-transparent transition
+               placeholder:text-neutral-400 focus:bg-white focus:ring-sky-200"
               />
             </div>
 
             {/* Geçiş Türü */}
             <div>
-              <div className="mb-1 text-sm font-semibold text-neutral-700">
+              <div className=" -ml-2 md:-ml-4 mb-1 text-sm font-semibold text-neutral-700">
                 Geçiş Türü
               </div>
               <select
                 value={passType}
                 onChange={(e) => setPassType(e.target.value)}
-                className="w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 outline-none ring-2 ring-transparent transition focus:bg-white focus:ring-sky-200"
+                className="-ml-2 md:-ml-4  w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 outline-none ring-2 ring-transparent transition focus:bg-white focus:ring-sky-200"
               >
                 <option value="">Tümü</option>
                 <option>Bugün</option>
@@ -86,13 +88,13 @@ export default function ShippingListPage() {
 
             {/* Duruma Göre */}
             <div>
-              <div className="mb-1 text-sm font-semibold text-neutral-700">
+              <div className=" -ml-2 md:-ml-4 mb-1 text-sm font-semibold text-neutral-700">
                 Duruma Göre
               </div>
               <select
                 value={byStatus}
                 onChange={(e) => setByStatus(e.target.value)}
-                className="w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 outline-none ring-2 ring-transparent transition focus:bg-white focus:ring-sky-200"
+                className="-ml-2 md:-ml-4 w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 outline-none ring-2 ring-transparent transition focus:bg-white focus:ring-sky-200"
               >
                 <option value="">Tümü</option>
                 <option>Beklemede</option>
@@ -104,7 +106,7 @@ export default function ShippingListPage() {
 
             {/* Başlangıç */}
             <div>
-              <div className="mb-1 text-sm font-semibold text-neutral-700">
+              <div className="-ml-2 md:-ml-4 mb-1 text-sm font-semibold text-neutral-700">
                 Başlangıç:
               </div>
               <div className="relative">
@@ -112,7 +114,7 @@ export default function ShippingListPage() {
                   type="date"
                   value={start}
                   onChange={(e) => setStart(e.target.value)}
-                  className="w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 pr-10 outline-none ring-2 ring-transparent transition focus:bg-white focus:ring-sky-200"
+                  className="-ml-2 md:-ml-4 w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 pr-10 outline-none ring-2 ring-transparent transition focus:bg-white focus:ring-sky-200"
                 />
                 <CalendarIcon />
               </div>
@@ -120,7 +122,7 @@ export default function ShippingListPage() {
 
             {/* Bitiş */}
             <div>
-              <div className="mb-1 text-sm font-semibold text-neutral-700">
+              <div className="-ml-2 md:-ml-4 mb-1 text-sm font-semibold text-neutral-700">
                 Bitiş:
               </div>
               <div className="relative">
@@ -128,22 +130,10 @@ export default function ShippingListPage() {
                   type="date"
                   value={end}
                   onChange={(e) => setEnd(e.target.value)}
-                  className="w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 pr-10 outline-none ring-2 ring-transparent transition focus:bg-white focus:ring-sky-200"
+                  className="-ml-2 md:-ml-4 w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 pr-10 outline-none ring-2 ring-transparent transition focus:bg-white focus:ring-sky-200"
                 />
                 <CalendarIcon />
               </div>
-            </div>
-
-            {/* Sağdaki küçük aksiyon butonu */}
-            <div className="flex justify-end">
-              <button
-                type="button"
-                title="Aksiyonlar"
-                className="h-[44px] w-[72px] rounded-xl border border-neutral-200 bg-white shadow-sm hover:bg-neutral-50 active:translate-y-px grid place-items-center"
-                onClick={() => alert('Filtre işlemleri')}
-              >
-                <BarsIcon />
-              </button>
             </div>
           </div>
         </div>
@@ -154,10 +144,10 @@ export default function ShippingListPage() {
             <table className="min-w-full">
               <thead>
                 <tr className="text-left text-sm text-neutral-500">
-                  <th className="px-6 py-3 font-medium">İsim / Plaka / Tel</th>
-                  <th className="px-6 py-3 font-medium">Geçiş Türü</th>
-                  <th className="px-6 py-3 font-medium">Durum</th>
-                  <th className="px-6 py-3 font-medium">Tarih</th>
+                  <th className="px-4 py-2 font-medium">İsim / Plaka / Tel</th>
+                  <th className="px-4 py-2 font-medium">Geçiş Türü</th>
+                  <th className="px-4 py-2 font-medium">Durum</th>
+                  <th className="px-4 py-2 font-medium">Tarih</th>
                 </tr>
               </thead>
               <tbody>
