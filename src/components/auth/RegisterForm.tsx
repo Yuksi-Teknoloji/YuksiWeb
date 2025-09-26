@@ -142,7 +142,7 @@ export default function RegisterForm() {
       {/* Already have account */}
       <p className="text-sm text-center text-gray-600 mt-6">
         Mevcut bir hesabım var •{" "}
-        <Link href="/login" className="text-orange-600 hover:underline">
+        <Link href="/auth/Login" className="text-orange-600 hover:underline">
           Giriş Yap
         </Link>
       </p>

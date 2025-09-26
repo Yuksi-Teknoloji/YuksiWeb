@@ -42,8 +42,8 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center">
       <div className="w-full max-w-md bg-white/90 backdrop-blur-md p-8 rounded-2xl shadow-2xl border border-orange-200">
         <div className="text-center mb-6">
-          <h1 className="text-3xl font-bold text-orange-600">Welcome Back</h1>
-          <p className="text-gray-600 mt-2">Log in to continue</p>
+          <h1 className="text-3xl font-bold text-orange-600">Hoşgeldiniz</h1>
+          <p className="text-gray-600 mt-2">Giriş yapmak için devam et</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-5">
@@ -69,7 +69,7 @@ export default function LoginPage() {
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Password
+              Şifre
             </label>
             <input
               type="password"
@@ -83,7 +83,7 @@ export default function LoginPage() {
 
           <div className="flex justify-end">
             <a href="/forgot-password" className="text-sm text-orange-600 hover:underline">
-              Forgot password?
+              Şifremi Unuttum
             </a>
           </div>
 
