@@ -16,14 +16,14 @@ export default function SettingsPage() {
   const [email, setEmail] = React.useState('');
   const [whatsapp, setWhatsapp] = React.useState('');
   const [address, setAddress] = React.useState('');
-  const [mapEmbed, setMapEmbed] = React.useState('');
+  const [mapEmbedCode, setMapEmbed] = React.useState('');
   const [adSelect, setAdSelect] = React.useState('');
   const [adInApp, setAdInApp] = React.useState('');
   const [adOutApp, setAdOutApp] = React.useState('');
   const [adOrder, setAdOrder] = React.useState('1');
 
-  const [bannerFile, setBannerFile] = React.useState<File | null>(null);
-  const [logoFile, setLogoFile] = React.useState<File | null>(null);
+  const [bannerUpload, setBannerFile] = React.useState<File | null>(null);
+  const [logoUpload, setLogoFile] = React.useState<File | null>(null);
 
   const [banners, setBanners] = React.useState<Banner[]>([
     { id: 'b1', url: 'https://images.unsplash.com/photo-1529070538774-1843cb3265df?w=1200' },
@@ -41,8 +41,8 @@ export default function SettingsPage() {
 
   function saveAd() {
     // YÜKLENEN RESMİ SAĞDAKİ LİSTEYE EKLE
-    if (bannerFile) {
-      const objectUrl = URL.createObjectURL(bannerFile);
+    if (bannerUpload) {
+      const objectUrl = URL.createObjectURL(bannerUpload);
       setBanners((prev) => [...prev, { id: crypto.randomUUID(), url: objectUrl }]);
       setBannerFile(null);
     }
@@ -50,7 +50,7 @@ export default function SettingsPage() {
   }
 
   function saveLogo() {
-    alert(logoFile ? `Logo yüklendi: ${logoFile.name}` : 'Logo seçili değil.');
+    alert(logoUpload ? `Logo yüklendi: ${logoUpload.name}` : 'Logo seçili değil.');
   }
 
   function saveAll() {
@@ -129,7 +129,7 @@ export default function SettingsPage() {
                   <input
                     readOnly
                     className="field"
-                    value={bannerFile?.name ?? 'Seçilen dosya yok'}
+                    value={bannerUpload?.name ?? 'Seçilen dosya yok'}
                   />
                   <label className="rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 text-sm font-medium text-neutral-800 hover:bg-neutral-200 cursor-pointer">
                     Dosya Seç
@@ -235,7 +235,7 @@ export default function SettingsPage() {
               <textarea
                 className="w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 text-neutral-800 placeholder:text-neutral-400 outline-none ring-2 ring-transparent transition focus:bg-white focus:border-neutral-300 focus:ring-sky-200"
                 rows={4}
-                value={mapEmbed}
+                value={mapEmbedCode}
                 onChange={(e) => setMapEmbed(e.target.value)}
               />
             </div>
@@ -248,7 +248,7 @@ export default function SettingsPage() {
                   <input
                     readOnly
                     className="field"
-                    value={logoFile?.name ?? 'Seçilen dosya yok'}
+                    value={logoUpload?.name ?? 'Seçilen dosya yok'}
                   />
                   <label className="rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 text-sm font-medium text-neutral-800 hover:bg-neutral-200 cursor-pointer">
                     Dosya Seç

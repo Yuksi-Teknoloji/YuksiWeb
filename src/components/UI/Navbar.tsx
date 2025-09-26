@@ -76,6 +76,26 @@ export default function Navbar() {
               </div>
             )}
           </div>
+
+          {/* Communication with Dropdown */}
+          <div className="relative">
+            <button
+              onClick={() => toggleMenu("login")}
+              className="hover:text-black transition-colors"
+            >
+              Aramıza Katıl
+            </button>
+            {openMenu === "login" && (
+              <div className="absolute left-0 mt-2 w-44 bg-white text-black rounded shadow-lg z-50">
+                <a href="/auth/Login" className="block px-4 py-2 hover:bg-gray-100">
+                  Giriş Yap
+                </a>
+                <a href="/auth/Register" className="block px-4 py-2 hover:bg-gray-100">
+                  Kayıt Ol
+                </a>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </nav>

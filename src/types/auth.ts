@@ -27,4 +27,4 @@ export interface MockResult<T>{
     json: string;
 }
 
-export type Role = "admin" | "dealer" | "carrier";
+export type Role = "admin" | "dealer" | "carrier" | "restaurant";

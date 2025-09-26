@@ -1,6 +1,6 @@
 //TODO  ---IT WILL BE CHANGE
 
-// src/config/nav/bayi.ts
+// src/config/nav/market.ts
 import type { NavGroup } from "@/types/roles";
 const nav: NavGroup[] = [
   { title: "Siparişler", items: [

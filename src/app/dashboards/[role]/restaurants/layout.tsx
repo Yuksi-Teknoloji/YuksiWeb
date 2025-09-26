@@ -1,8 +1,8 @@
-//TO DO --- IT WILL BE CHANGED
-
-// src/app/(dashboards)/bayi/layout.tsx
-import DashboardShell from "@/components/dashboard/Shell";
-import nav from  "../../../config/nav/restaurant";
-export default function BayiLayout({ children }: { children: React.ReactNode }) {
-  return <DashboardShell title="Bayi" nav={nav}>{children}</DashboardShell>;
+// src/app/dashboards/[role]/restaurants/layout.tsx
+export default function RestaurantsLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return children; // sadece üst layout’un içine otursun
 }
