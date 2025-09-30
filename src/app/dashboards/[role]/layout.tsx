@@ -6,14 +6,16 @@ import { notFound } from "next/navigation";
 import type { Role } from "@/types/roles";
 import "@/styles/soft-ui.css";
 
-export default function AppShellLayout({
-  children,
+export default async function AppShellLayout({
+   children,
   params,
 }: {
   children: React.ReactNode;
-  params: { role: Role };
+  // ⬇️ params artık Promise
+  params: Promise<{ role: Role }>;
 }) {
-  const nav = navForRole(params.role);
+  const { role } = await params;          // ⬅️ önemli
+  const nav = navForRole(role);
   if (!nav) notFound();
 
   return (

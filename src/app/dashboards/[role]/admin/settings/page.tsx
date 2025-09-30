@@ -1,154 +1,433 @@
-'use client';
+// src/app/dashboards/[role]/admin/settings/page.tsx
+"use client";
 
-import * as React from 'react';
-import { Trash2 } from 'lucide-react';
-import "@/styles/soft-ui.css"
+import * as React from "react";
+import { Trash2 } from "lucide-react";
+import "@/styles/admin-settings.css";
 
-type Banner = { id: string; url: string };
+type BannerApiItem = {
+  id?: number | string;
+  guid?: string;
+  title?: string;
+  link?: string;
+  description?: string;
+  images?: string[];
+  isActive?: boolean;
+  isDeleted?: boolean;
+};
+
+type BannerCard = {
+  id: string;
+  numericId?: number | null;
+  guid?: string | null;
+  title: string;
+  link: string;
+  description: string;
+  image: string;
+  isActive: boolean;
+  _dirty?: boolean;
+  _file?: File | null;
+};
+
+type GeneralSettingsDto = {
+  appName: string;
+  appTitle: string;
+  keywords: string;
+  email: string;
+  whatsApp: string;
+  address: string;
+  mapEmbedCode: string;
+  logoPath: string;
+};
+
+const API_BASE = (process.env.NEXT_PUBLIC_API_BASE || "http://40.90.226.14:8080").replace(/\/+$/, "");
+
+// ---- helpers
+async function readProblem(res: Response) {
+  const txt = await res.text();
+  try { return txt ? JSON.parse(txt) : null; } catch { return txt; }
+}
+async function readAny(res: Response) {
+  const txt = await res.text().catch(() => "");
+  try { return txt ? JSON.parse(txt) : ""; } catch { return txt; }
+}
+function isBase64Like(s: string) {
+  return !!s && s.length >= 32 && /^[A-Za-z0-9+/=]+$/.test(s);
+}
+function guessMimeFromBase64(s: string) {
+  if (s.startsWith("iVBOR")) return "image/png";
+  if (s.startsWith("/9j/"))   return "image/jpeg";
+  if (s.startsWith("R0lG"))   return "image/gif";
+  if (s.startsWith("UklGR"))  return "image/webp";
+  return "image/jpeg";
+}
+function toDisplaySrc(raw?: string): string {
+  const s = (raw || "").trim();
+  if (!s) return "";
+  if (s.startsWith("http://") || s.startsWith("https://") || s.startsWith("data:")) return s;
+  if (isBase64Like(s)) {
+    const mime = guessMimeFromBase64(s);
+    return `data:${mime};base64,${s}`;
+  }
+  const path = s.replace(/^\/+/, "");
+  return `${API_BASE}/${path}`;
+}
+async function fileToBase64Raw(file: File): Promise<string> {
+  const buf = await file.arrayBuffer();
+  let bin = "";
+  const bytes = new Uint8Array(buf);
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin);
+}
 
 export default function SettingsPage() {
-  // Demo state’ler – API bağlayınca kaldır/bağla
-  const [commission, setCommission] = React.useState('30');
-  const [appName, setAppName] = React.useState('app');
-  const [appTitle, setAppTitle] = React.useState('');
-  const [desc, setDesc] = React.useState('');
-  const [keywords, setKeywords] = React.useState('');
-  const [email, setEmail] = React.useState('');
-  const [whatsapp, setWhatsapp] = React.useState('');
-  const [address, setAddress] = React.useState('');
-  const [mapEmbedCode, setMapEmbed] = React.useState('');
-  const [adSelect, setAdSelect] = React.useState('');
-  const [adInApp, setAdInApp] = React.useState('');
-  const [adOutApp, setAdOutApp] = React.useState('');
-  const [adOrder, setAdOrder] = React.useState('1');
+  // ---- GeneralSettings (SOL PANEL)
+  const [appName, setAppName] = React.useState("");
+  const [appTitle, setAppTitle] = React.useState("");
+  const [desc, setDesc] = React.useState("");           // swagger'da "description" yok; sen SEO açıklamanı "keywords"tan ayrı tutmak istersen backend'e eklenmeli.
+  const [keywords, setKeywords] = React.useState("");
+  const [email, setEmail] = React.useState("");
+  const [whatsapp, setWhatsapp] = React.useState("");
+  const [address, setAddress] = React.useState("");
+  const [mapEmbedCode, setMapEmbed] = React.useState("");
+  const [logoPath, setLogoPath] = React.useState("");   // <-- swagger alanı
+  const [logoFile, setLogoFile] = React.useState<File | null>(null);
 
-  const [bannerUpload, setBannerFile] = React.useState<File | null>(null);
-  const [logoUpload, setLogoFile] = React.useState<File | null>(null);
+  // ---- Diğer (demo)
+  const [commission, setCommission] = React.useState("30");
 
-  const [banners, setBanners] = React.useState<Banner[]>([
-    { id: 'b1', url: 'https://images.unsplash.com/photo-1529070538774-1843cb3265df?w=1200' },
-    { id: 'b2', url: 'https://images.unsplash.com/photo-1604147495798-57beb5d6af73?w=1200' },
-    { id: 'b3', url: 'https://images.unsplash.com/photo-1549923746-c502d488b3ea?w=1200' },
-  ]);
+  // ---- Banner form
+  const [bannerTitle, setBannerTitle] = React.useState("");
+  const [bannerLink, setBannerLink] = React.useState("");
+  const [bannerDesc, setBannerDesc] = React.useState("");
+  const [bannerFile, setBannerFile] = React.useState<File | null>(null);
 
-  function removeBanner(id: string) {
-    setBanners((x) => x.filter((b) => b.id !== id));
+  // ---- List & state
+  const [banners, setBanners] = React.useState<BannerCard[]>([]);
+  const [loadingList, setLoadingList] = React.useState(false);
+  const [loadingGeneral, setLoadingGeneral] = React.useState(false);
+  const [saving, setSaving] = React.useState(false);
+  const [savingGeneral, setSavingGeneral] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const [okMsg, setOkMsg] = React.useState<string | null>(null);
+
+  // ---------- GeneralSettings: GET
+  const loadGeneral = React.useCallback(async () => {
+    setLoadingGeneral(true);
+    setError(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/GeneralSettings/get-general-settings`, { cache: "no-store" });
+      if (!res.ok) {
+        const prob = await readProblem(res);
+        throw new Error(typeof prob === "string" ? prob : (prob?.title || prob?.message || `HTTP ${res.status}`));
+      }
+      const data = await res.json().catch(() => ({}));
+      const gs: Partial<GeneralSettingsDto> = (data?.data ?? data) || {};
+      setAppName(gs.appName ?? "");
+      setAppTitle(gs.appTitle ?? "");
+      setKeywords(gs.keywords ?? "");
+      setEmail(gs.email ?? "");
+      setWhatsapp(gs.whatsApp ?? "");
+      setAddress(gs.address ?? "");
+      setMapEmbed(gs.mapEmbedCode ?? "");
+      setLogoPath(gs.logoPath ?? "");
+    } catch (e: any) {
+      setError(e?.message || "Genel ayarlar alınamadı.");
+    } finally {
+      setLoadingGeneral(false);
+    }
+  }, []);
+
+  // ---------- GeneralSettings: PATCH
+  async function saveGeneral() {
+  setSavingGeneral(true);
+  setError(null);
+  setOkMsg(null);
+
+  // 1) temiz DTO
+  const dtoBase = {
+    appName: (appName || "").trim(),
+    appTitle: (appTitle || "").trim(),
+    keywords: (keywords || "").trim(),
+    email: (email || "").trim(),
+    whatsApp: (whatsapp || "").trim(),   // swagger böyle gösteriyor
+    address: (address || "").trim(),
+    mapEmbedCode: (mapEmbedCode || "").trim(),
+    logoPath: (logoPath || "").trim(),
+  };
+
+  // hızlı client-side kontrol (opsiyonel)
+  if (!dtoBase.appName || !dtoBase.appTitle) {
+    setSavingGeneral(false);
+    setError("Lütfen App Adı ve App Başlığı alanlarını doldurun.");
+    return;
   }
 
-  function saveCommission() {
+  // denenecek istek kombinasyonları
+  const routes = [
+    { url: `${API_BASE}/api/admin/GeneralSettings/update-general-settings`, method: "PATCH", body: dtoBase },
+    { url: `${API_BASE}/api/admin/GeneralSettings/update-general-settings`, method: "PUT",   body: dtoBase },
+    { url: `${API_BASE}/api/admin/GeneralSettings/update-general-settings`, method: "POST",  body: dtoBase },
+    // admin’siz rota ihtimali
+    { url: `${API_BASE}/api/GeneralSettings/update-general-settings`,       method: "PATCH", body: dtoBase },
+    // bazı backendlere "whatsapp" küçük harf lazım olabiliyor
+    { url: `${API_BASE}/api/admin/GeneralSettings/update-general-settings`, method: "PATCH",
+      body: { ...dtoBase, whatsapp: dtoBase.whatsApp, whatsApp: undefined } as any },
+  ];
+
+  // debug: ne gönderiyoruz
+  console.log("[GeneralSettings] outgoing payload try-order:", routes.map(r => ({ url: r.url, method: r.method, body: r.body })));
+
+  let lastErrMsg = "";
+  for (const r of routes) {
+    try {
+      const res = await fetch(r.url, {
+        method: r.method,
+        headers: { "Content-Type": "application/json; charset=utf-8" },
+        body: JSON.stringify(r.body),
+      });
+
+      if (res.ok) {
+        setOkMsg("Genel ayarlar güncellendi.");
+        await loadGeneral();
+        setSavingGeneral(false);
+        return;
+      }
+
+      // hata gövdesini topla
+      const problem = await readAny(res);
+      const msg = typeof problem === "string"
+        ? problem
+        : (problem?.title || problem?.message || problem?.detail || `HTTP ${res.status}`);
+      lastErrMsg = `[${r.method} ${r.url}] ${msg}`;
+      console.warn("saveGeneral failed:", lastErrMsg, problem);
+      // 500 ise sonraki fallback’e geç
+      if (res.status >= 500) continue;
+      // 4xx ise diğerlerini denemek mantıksız olabilir ama yine de devam edelim
+    } catch (e: any) {
+      lastErrMsg = `[${r.method} ${r.url}] ${e?.message || e}`;
+      console.warn("saveGeneral exception:", e);
+    }
+  }
+
+  setError(lastErrMsg || "Genel ayarlar kaydedilemedi (sunucu 500).");
+  setSavingGeneral(false);
+}
+
+  // ---------- Banner list
+  const loadBanners = React.useCallback(async () => {
+    setLoadingList(true);
+    setError(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/Banner/get-banners`, { cache: "no-store" });
+      const data = await res.json().catch(() => ({} as any));
+      const arr = (Array.isArray(data?.data) ? data.data : Array.isArray(data) ? data : []) as BannerApiItem[];
+
+      const mapped: BannerCard[] = arr
+        .filter(x => x && x.isActive === true && x.isDeleted === false)
+        .map(x => ({
+          id: String(x.guid ?? x.id ?? crypto.randomUUID()),
+          numericId: typeof x.id === "number" ? x.id : (typeof x.id === "string" ? Number(x.id) || null : null),
+          guid: x.guid ?? null,
+          title: x.title ?? "",
+          link: x.link ?? "",
+          description: x.description ?? "",
+          image: toDisplaySrc(x.images?.[0]),
+          isActive: true,
+        }));
+
+      setBanners(mapped);
+    } catch (e: any) {
+      setError(e?.message || "Banner listesi alınamadı.");
+    } finally {
+      setLoadingList(false);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    loadGeneral();
+    loadBanners();
+  }, [loadGeneral, loadBanners]);
+
+  function markDirty(id: string, patch: Partial<BannerCard>) {
+    setBanners(prev => prev.map(b => (String(b.id) === String(id) ? { ...b, ...patch, _dirty: true } : b)));
+  }
+
+  // demo
+  async function saveCommission() {
     alert(`Komisyon güncellendi: %${commission}`);
   }
 
-  function saveAd() {
-    // YÜKLENEN RESMİ SAĞDAKİ LİSTEYE EKLE
-    if (bannerUpload) {
-      const objectUrl = URL.createObjectURL(bannerUpload);
-      setBanners((prev) => [...prev, { id: crypto.randomUUID(), url: objectUrl }]);
-      setBannerFile(null);
-    }
-    alert('Reklam ayarları kaydedildi (demo).');
+  // ---------- Banner add/update/delete (aynı)
+  async function addBanner() {
+    if (!bannerFile) { setError("Lütfen bir görsel seçin."); return; }
+    setSaving(true); setError(null); setOkMsg(null);
+    try {
+      const b64 = await fileToBase64Raw(bannerFile);
+      const payload = {
+        title: bannerTitle || "Banner",
+        link: bannerLink || "",
+        description: bannerDesc || "",
+        images: [b64],
+        imageFileNames: [bannerFile.name],
+        isActive: true,
+        isDeleted: false,
+      };
+      const res = await fetch(`${API_BASE}/api/Banner/set-banner`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const prob = await readProblem(res);
+        throw new Error(typeof prob === "string" ? prob : (prob?.title || prob?.message || `HTTP ${res.status}`));
+      }
+      setOkMsg("Banner eklendi.");
+      setBannerTitle(""); setBannerLink(""); setBannerDesc(""); setBannerFile(null);
+      await loadBanners();
+    } catch (e: any) {
+      setError(e?.message || "Banner kaydedilemedi.");
+    } finally { setSaving(false); }
   }
 
+  async function updateBanner(b: BannerCard) {
+    setSaving(true); setError(null); setOkMsg(null);
+    try {
+      const body: any = {
+        id: b.numericId ?? undefined,
+        guid: b.guid ?? undefined,
+        title: b.title ?? "",
+        link: b.link ?? "",
+        description: b.description ?? "",
+      };
+      if (b._file) {
+        const raw = await fileToBase64Raw(b._file);
+        body.images = [raw];
+        body.imageFileNames = [b._file.name];
+      }
+      const res = await fetch(`${API_BASE}/api/Banner/update-banner`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const prob = await readProblem(res);
+        throw new Error(typeof prob === "string" ? prob : (prob?.title || prob?.message || `HTTP ${res.status}`));
+      }
+      setOkMsg("Banner güncellendi.");
+      await loadBanners();
+    } catch (e: any) {
+      setError(e?.message || "Banner güncellenemedi.");
+    } finally { setSaving(false); }
+  }
+
+  async function removeBanner(idOrStr: string | number) {
+    setSaving(true); setError(null); setOkMsg(null);
+    try {
+      const b = banners.find(x => String(x.id) === String(idOrStr));
+      const patchPayload: any = {
+        id: b?.numericId ?? undefined,
+        guid: b?.guid ?? undefined,
+        isDeleted: true,
+        isActive: false,
+        title: b?.title ?? "",
+        link: b?.link ?? "",
+        description: b?.description ?? "",
+      };
+      let res = await fetch(`${API_BASE}/api/Banner/update-banner`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patchPayload),
+      });
+
+      if (!res.ok && res.status === 400) {
+        const qs =
+          b?.guid ? `guid=${encodeURIComponent(b.guid)}` :
+          b?.numericId ? `id=${b.numericId}` :
+          `id=${encodeURIComponent(String(idOrStr))}`;
+
+        const tryUrls = [
+          `${API_BASE}/api/Banner/delete-banner?${qs}`,
+          `${API_BASE}/api/Banner/delete?${qs}`,
+        ];
+        let ok = false, lastErr: any = null;
+        for (const url of tryUrls) {
+          try {
+            const r = await fetch(url, { method: "DELETE" });
+            if (r.ok) { ok = true; break; }
+            lastErr = await r.text();
+          } catch (e) { lastErr = e; }
+        }
+        if (!ok) throw new Error(typeof lastErr === "string" ? lastErr : "Silme başarısız (DELETE).");
+      } else if (!res.ok) {
+        const prob = await readProblem(res);
+        throw new Error(typeof prob === "string" ? prob : (prob?.title || prob?.message || `HTTP ${res.status}`));
+      }
+
+      setBanners(prev => prev.filter(x => String(x.id) !== String(idOrStr)));
+      setOkMsg("Banner silindi.");
+    } catch (e: any) {
+      setError(e?.message || "Banner silinemedi.");
+    } finally { setSaving(false); }
+  }
+
+  // logo "Kaydet" tuşu sadece logoPath'i doldurur (upload endpoint yoksa)
   function saveLogo() {
-    alert(logoUpload ? `Logo yüklendi: ${logoUpload.name}` : 'Logo seçili değil.');
-  }
-
-  function saveAll() {
-    alert('Ayarlar kaydedildi (demo).');
+    if (logoFile) setLogoPath(logoFile.name);
+    setOkMsg(logoFile ? `Logo path set: ${logoFile.name}` : "Logo seçili değil.");
   }
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-semibold tracking-tight">Ayarlar</h1>
+    <div className="settings">
+      <h1 className="settings__title">Ayarlar</h1>
+
+      {error && <div className="alert alert--error">{error}</div>}
+      {okMsg && <div className="alert alert--ok">{okMsg}</div>}
 
       {/* Üst 2 kolon */}
-      <div className="grid gap-6 lg:grid-cols-2">
-        {/* Sol: Komisyon kutusu */}
-        <section className="rounded-2xl border border-neutral-200/70 bg-white p-6 shadow-sm soft-card">
-          <div className="text-[15px] font-semibold text-neutral-700 mb-3">
-            Komisyon Yüzde Oranı
-          </div>
-          <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
-            <input
-              className="w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 text-neutral-800 placeholder:text-neutral-400 outline-none ring-2 ring-transparent transition focus:bg-white focus:border-neutral-300 focus:ring-sky-200"
-              value={commission}
-              onChange={(e) => setCommission(e.target.value)}
-            />
-            <button
-              onClick={saveCommission}
-              className="rounded-xl border border-emerald-100 bg-emerald-500 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-emerald-600"
-            >
-              Güncelle
-            </button>
+      <div className="grid grid--two">
+        {/* Komisyon (demo) */}
+        <section className="card">
+          <div className="card__head">Komisyon Yüzde Oranı</div>
+          <div className="row row--with-action">
+            <input className="field" value={commission} onChange={(e) => setCommission(e.target.value)} />
+            <button onClick={saveCommission} className="btn btn--success">Güncelle</button>
           </div>
         </section>
 
-        {/* Sağ: Reklam alanı */}
-        <section className="relative rounded-2xl border border-neutral-200/70 bg-white p-6 shadow-sm soft-card">
-          <div className="grid gap-4">
-            <div>
-              <label className="label">Reklam Seçiniz</label>
-              <input
-                className="w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 text-neutral-800 placeholder:text-neutral-400 outline-none ring-2 ring-transparent transition focus:bg-white focus:border-neutral-300 focus:ring-sky-200"
-                value={adSelect}
-                onChange={(e) => setAdSelect(e.target.value)}
-              />
+        {/* Yeni Banner Ekle */}
+        <section className="card">
+          <div className="form">
+            <div className="row">
+              <div className="col">
+                <label className="label">Başlık</label>
+                <input className="field" value={bannerTitle} onChange={(e) => setBannerTitle(e.target.value)} placeholder="Banner başlığı" />
+              </div>
+              <div className="col">
+                <label className="label">Link</label>
+                <input className="field" value={bannerLink} onChange={(e) => setBannerLink(e.target.value)} placeholder="https://…" />
+              </div>
             </div>
-
-            <div>
-              <label className="label">Uygulama içi</label>
-              <input
-                className="w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 text-neutral-800 placeholder:text-neutral-400 outline-none ring-2 ring-transparent transition focus:bg-white focus:border-neutral-300 focus:ring-sky-200"
-                value={adInApp}
-                onChange={(e) => setAdInApp(e.target.value)}
-              />
+            <div className="row">
+              <div className="col">
+                <label className="label">Açıklama</label>
+                <textarea className="field" rows={3} value={bannerDesc} onChange={(e) => setBannerDesc(e.target.value)} />
+              </div>
             </div>
-
-            <div>
-              <label className="label">Uygulama dışı</label>
-              <input
-                className="w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 text-neutral-800 placeholder:text-neutral-400 outline-none ring-2 ring-transparent transition focus:bg-white focus:border-neutral-300 focus:ring-sky-200"
-                value={adOutApp}
-                onChange={(e) => setAdOutApp(e.target.value)}
-              />
-            </div>
-
-            <div>
-              <label className="label">Sıralama</label>
-              <input
-                className="w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 text-neutral-800 placeholder:text-neutral-400 outline-none ring-2 ring-transparent transition focus:bg-white focus:border-neutral-300 focus:ring-sky-200"
-                value={adOrder}
-                onChange={(e) => setAdOrder(e.target.value)}
-              />
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
-              <div>
+            <div className="row row--with-action">
+              <div className="filepicker">
                 <label className="label">Resim yükle</label>
-                <div className="grid grid-cols-[1fr_auto] gap-2">
-                  <input
-                    readOnly
-                    className="field"
-                    value={bannerUpload?.name ?? 'Seçilen dosya yok'}
-                  />
-                  <label className="rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 text-sm font-medium text-neutral-800 hover:bg-neutral-200 cursor-pointer">
+                <div className="filepicker__grid">
+                  <input readOnly className="field" value={bannerFile?.name ?? "Seçilen dosya yok"} />
+                  <label className="btn btn--light filepicker__btn">
                     Dosya Seç
-                    <input
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      onChange={(e) => setBannerFile(e.target.files?.[0] ?? null)}
-                    />
+                    <input type="file" accept="image/*" className="hidden-input" onChange={(e) => setBannerFile(e.target.files?.[0] ?? null)} />
                   </label>
                 </div>
               </div>
-
-              <div className="flex items-end">
-                <button
-                  onClick={saveAd}
-                  className="rounded-xl border border-indigo-100 bg-indigo-500 px-5 py-2.5 text-sm font-semibold text-white shadow hover:bg-indigo-600"
-                >
-                  Kaydet
+              <div className="align-end">
+                <button onClick={addBanner} disabled={saving} className="btn btn--primary">
+                  {saving ? "Kaydediliyor…" : "Kaydet"}
                 </button>
               </div>
             </div>
@@ -156,172 +435,138 @@ export default function SettingsPage() {
         </section>
       </div>
 
-      {/* Orta bölüm – sol geniş form + sağ banner listesi */}
-      <div className="grid gap-6 lg:grid-cols-[1fr_420px]">
-        {/* Sol büyük form */}
-        <section className="rounded-2xl border border-neutral-200/70 bg-white p-6 shadow-sm soft-card">
-          <div className="grid gap-4">
-            <div>
+      {/* Orta bölüm – sol form + sağ liste */}
+      <div className="grid grid--main">
+        {/* Sol – GENERAL SETTINGS (bağlandı) */}
+        <section className="card">
+          <div className="form">
+            {loadingGeneral && <div className="muted">Genel ayarlar yükleniyor…</div>}
+
+            <div className="col">
               <label className="label">App Adı</label>
-              <input
-                className="w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 text-neutral-800 placeholder:text-neutral-400 outline-none ring-2 ring-transparent transition focus:bg-white focus:border-neutral-300 focus:ring-sky-200"
-                value={appName}
-                onChange={(e) => setAppName(e.target.value)}
-              />
+              <input className="field" value={appName} onChange={(e) => setAppName(e.target.value)} />
             </div>
 
-            <div>
-              <label className="label">App başlığı</label>
-              <input
-                className="w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 text-neutral-800 placeholder:text-neutral-400 outline-none ring-2 ring-transparent transition focus:bg-white focus:border-neutral-300 focus:ring-sky-200"
-                value={appTitle}
-                onChange={(e) => setAppTitle(e.target.value)}
-              />
+            <div className="col">
+              <label className="label">App Başlığı</label>
+              <input className="field" value={appTitle} onChange={(e) => setAppTitle(e.target.value)} />
             </div>
 
-            <div>
-              <label className="label">Açıklama</label>
-              <textarea
-                className="w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 text-neutral-800 placeholder:text-neutral-400 outline-none ring-2 ring-transparent transition focus:bg-white focus:border-neutral-300 focus:ring-sky-200"
-                rows={4}
-                value={desc}
-                onChange={(e) => setDesc(e.target.value)}
-                placeholder="160 karakter"
-              />
-            </div>
-
-            <div>
+            <div className="col">
               <label className="label">Keywords</label>
-              <textarea
-                className="w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 text-neutral-800 placeholder:text-neutral-400 outline-none ring-2 ring-transparent transition focus:bg-white focus:border-neutral-300 focus:ring-sky-200"
-                rows={4}
-                value={keywords}
-                onChange={(e) => setKeywords(e.target.value)}
-                placeholder="Virgül ile ayırarak; kelime, öbek, kelime vb"
-              />
+              <textarea className="field" rows={3} value={keywords} onChange={(e) => setKeywords(e.target.value)} placeholder="Virgül ile ayır: kelime, öbek, ..." />
             </div>
 
-            <div className="grid gap-4 md:grid-cols-2">
-              <div>
+            <div className="row">
+              <div className="col">
                 <label className="label">Email</label>
-                <input
-                  className="w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 text-neutral-800 placeholder:text-neutral-400 outline-none ring-2 ring-transparent transition focus:bg-white focus:border-neutral-300 focus:ring-sky-200"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                />
+                <input className="field" value={email} onChange={(e) => setEmail(e.target.value)} />
               </div>
-              <div>
-                <label className="label">Whatsapp</label>
-                <input
-                  className="w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 text-neutral-800 placeholder:text-neutral-400 outline-none ring-2 ring-transparent transition focus:bg-white focus:border-neutral-300 focus:ring-sky-200"
-                  value={whatsapp}
-                  onChange={(e) => setWhatsapp(e.target.value)}
-                />
+              <div className="col">
+                <label className="label">WhatsApp</label>
+                <input className="field" value={whatsapp} onChange={(e) => setWhatsapp(e.target.value)} />
               </div>
             </div>
 
-            <div>
-              <label className="label">Adress</label>
-              <textarea
-                className="w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 text-neutral-800 placeholder:text-neutral-400 outline-none ring-2 ring-transparent transition focus:bg-white focus:border-neutral-300 focus:ring-sky-200"
-                rows={4}
-                value={address}
-                onChange={(e) => setAddress(e.target.value)}
-              />
+            <div className="col">
+              <label className="label">Adres</label>
+              <textarea className="field" rows={3} value={address} onChange={(e) => setAddress(e.target.value)} />
             </div>
 
-            <div>
-              <label className="label">Harita embed kodu</label>
-              <textarea
-                className="w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 text-neutral-800 placeholder:text-neutral-400 outline-none ring-2 ring-transparent transition focus:bg-white focus:border-neutral-300 focus:ring-sky-200"
-                rows={4}
-                value={mapEmbedCode}
-                onChange={(e) => setMapEmbed(e.target.value)}
-              />
+            <div className="col">
+              <label className="label">Harita Embed Kodu</label>
+              <textarea className="field" rows={3} value={mapEmbedCode} onChange={(e) => setMapEmbed(e.target.value)} />
             </div>
 
-            {/* Logo yükle + sağ alt kaydet */}
-            <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
-              <div>
-                <label className="label">Logo yükle</label>
-                <div className="grid grid-cols-[1fr_auto] gap-2">
-                  <input
-                    readOnly
-                    className="field"
-                    value={logoUpload?.name ?? 'Seçilen dosya yok'}
-                  />
-                  <label className="rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 text-sm font-medium text-neutral-800 hover:bg-neutral-200 cursor-pointer">
+            <div className="col">
+              <label className="label">Logo Path</label>
+              <input className="field" value={logoPath} onChange={(e) => setLogoPath(e.target.value)} placeholder="uploads/logo.png vb." />
+            </div>
+
+            {/* İsteğe bağlı: dosya seç → logoPath'i dosya adına set eder */}
+            <div className="row row--with-action">
+              <div className="filepicker">
+                <label className="label">Logo Dosyası (opsiyonel)</label>
+                <div className="filepicker__grid">
+                  <input readOnly className="field" value={logoFile?.name ?? "Seçilen dosya yok"} />
+                  <label className="btn btn--light filepicker__btn">
                     Dosya Seç
-                    <input
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      onChange={(e) => setLogoFile(e.target.files?.[0] ?? null)}
-                    />
+                    <input type="file" accept="image/*" className="hidden-input" onChange={(e) => setLogoFile(e.target.files?.[0] ?? null)} />
                   </label>
                 </div>
               </div>
-
-              <div className="flex items-end justify-end">
-                <button
-                  onClick={saveLogo}
-                  className="rounded-xl border border-indigo-100 bg-indigo-500 px-5 py-2.5 text-sm font-semibold text-white shadow hover:bg-indigo-600"
-                >
-                  Kaydet
-                </button>
+              <div className="align-end">
+                <button onClick={saveLogo} className="btn btn--light">Logo Adını Kullan</button>
               </div>
             </div>
 
-            {/* Genel Kaydet */}
-            <div className="flex justify-end pt-2">
-              <button
-                onClick={saveAll}
-                className="rounded-xl border border-emerald-100 bg-emerald-500 px-6 py-2.5 text-sm font-semibold text-white shadow hover:bg-emerald-600"
-              >
-                Tümünü Kaydet
+            <div className="align-end pt-2">
+              <button onClick={saveGeneral} disabled={savingGeneral} className="btn btn--success">
+                {savingGeneral ? "Kaydediliyor…" : "Genel Ayarları Kaydet"}
               </button>
             </div>
           </div>
         </section>
 
-        {/* Sağ: Banner önizleme listesi */}
-        <aside className="rounded-2xl border border-neutral-200/70 bg-white p-4 shadow-sm soft-card">
-          <div className="space-y-4">
-            {banners.map((b) => (
-              <div
-                key={b.id}
-                className="relative overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-sm"
-              >
-                <button
-                  onClick={() => removeBanner(b.id)}
-                  className="absolute left-2 top-2 rounded-md bg-white/90 p-1.5 text-rose-600 shadow"
-                  title="Sil"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </button>
+        {/* Sağ – Banner listesi */}
+        <aside className="card card--list">
+          {loadingList ? (
+            <div className="muted">Yükleniyor…</div>
+          ) : banners.length === 0 ? (
+            <div className="muted">Henüz banner yok.</div>
+          ) : (
+            <div className="list">
+              {banners.map((b) => (
+                <div key={b.id} className="banner">
+                  <button
+                    onClick={() => removeBanner(b.id)}
+                    className="icon-btn icon-btn--danger banner__delete"
+                    title="Sil"
+                  >
+                    <Trash2 className="icon" />
+                  </button>
 
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={b.url}
-                  alt="banner"
-                  className="h-40 w-full object-cover"
-                  loading="lazy"
-                />
-              </div>
-            ))}
-          </div>
+                  {b.image ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={b.image} alt="banner" className="banner__img" loading="lazy" />
+                  ) : (
+                    <div className="banner__img banner__img--empty">Görsel yok</div>
+                  )}
+
+                  <div className="banner__form">
+                    <input className="field" value={b.title} onChange={(e) => markDirty(b.id, { title: e.target.value })} placeholder="Başlık" />
+                    <input className="field" value={b.link} onChange={(e) => markDirty(b.id, { link: e.target.value })} placeholder="https://…" />
+                    <textarea className="field" rows={2} value={b.description} onChange={(e) => markDirty(b.id, { description: e.target.value })} placeholder="Açıklama" />
+                    <div className="row">
+                      <div className="filepicker__grid">
+                        <input readOnly className="field" value={b._file?.name ?? "Yeni görsel seç (opsiyonel)"} />
+                        <label className="btn btn--light filepicker__btn">
+                          Dosya Seç
+                          <input
+                            type="file"
+                            accept="image/*"
+                            className="hidden-input"
+                            onChange={(e) => markDirty(b.id, { _file: e.target.files?.[0] || null })}
+                          />
+                        </label>
+                      </div>
+                      <div className="align-end">
+                        <button
+                          onClick={() => updateBanner(b)}
+                          disabled={!b._dirty || saving}
+                          className="btn btn--primary"
+                        >
+                          {saving ? "Kaydediliyor…" : "Güncelle"}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </aside>
       </div>
     </div>
   );
 }
-
-/* Küçük label helper’ı (opsiyonel) */
-function Label({ children }: { children: React.ReactNode }) {
-  return <div className="text-sm font-medium text-neutral-700">{children}</div>;
-}
-
-/* Tailwind yardımcı sınıfı: .label – global.css’de yoksa yerinde kullanıyoruz */
-const style = `
-.label { @apply text-sm font-medium text-neutral-700 mb-1 block; }
-`;

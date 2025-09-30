@@ -1,7 +1,50 @@
+//src/components/auth/LoginForm.tsx
 "use client";
-
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
+
+const HOME_BY_ROLE: Record<string, string> = {
+  admin: "/dashboards/admin/admin",
+  restaurant: "/dashboards/restaurant/restaurants",
+  bayi: "/dashboards/bayi/bayi",
+  corporate: "/dashboards/corporate/corporate",
+  marketing: "/dashboards/marketing/marketing",
+  carrier: "/dashboards/carrier/carrier",
+};
+
+// bazı backend'ler farklı isimlerle döndürüyor olabilir
+const ROLE_ALIASES: Record<string, string> = {
+  restaurants: "restaurant",
+  dealer: "bayi",
+  dealers: "bayi",
+  courier: "carrier",
+  kuryeci: "carrier",
+};
+
+function base64UrlToJson(b64url: string) {
+  const b64 = b64url.replace(/-/g, "+").replace(/_/g, "/");
+  const pad = "=".repeat((4 - (b64.length % 4)) % 4);
+  const json =
+    typeof window === "undefined"
+      ? Buffer.from(b64 + pad, "base64").toString("utf8")
+      : decodeURIComponent(
+          atob(b64 + pad)
+            .split("")
+            .map((c) => "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2))
+            .join("")
+        );
+  return JSON.parse(json);
+}
+function decodeJwt(token: string): any {
+  const parts = token.split(".");
+  if (parts.length < 2) return null;
+  return base64UrlToJson(parts[1]);
+}
+function normalizeRole(raw?: string) {
+  const r = String(raw || "").toLowerCase().trim();
+  return ROLE_ALIASES[r] || r;
+}
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -22,21 +65,47 @@ export default function LoginPage() {
         body: JSON.stringify({ email, password }),
       });
 
-      const data = await res.json().catch(() => ({}));
+      const text = await res.text();
+      let data: any = null;
+      try { data = text ? JSON.parse(text) : null; } catch {}
 
-      if (!res.ok || !data?.ok) {
-        setErr(data?.message || "Giriş başarısız.");
-        setLoading(false);
+      if (!res.ok) {
+        setErr((data && (data.message || data.error)) || "Giriş başarısız.");
         return;
       }
 
-      // Cookie set edildi; admin ana sayfasına yönlendir
-      router.push("/dashboards/admin/admin");
+      // token varsa claim’den role çek
+      const token = data?.token || data?.access_token || data?.jwt;
+      let role: string | undefined;
+
+      if (token) {
+        const payload = decodeJwt(token) || {};
+        role =
+          payload.role ??
+          payload.userType ??
+          payload["http://schemas.microsoft.com/ws/2008/06/identity/claims/role"];
+      }
+
+      // yoksa session’dan sor (cookie tabanlı backend’ler için)
+      if (!role) {
+        const sRes = await fetch("/api/session", { cache: "no-store" });
+        const sData = await sRes.json().catch(() => ({}));
+        role = sData?.role;
+      }
+
+      const roleNormalized = normalizeRole(role);
+      const dest =
+        HOME_BY_ROLE[roleNormalized] ||
+        "/dashboards/admin/admin"; // sağlam fallback
+
+      router.replace(dest); // geri tuşu login'e dönmez
+      return;
     } catch {
       setErr("Ağ hatası. Lütfen tekrar deneyin.");
+    } finally {
       setLoading(false);
     }
-  };
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center">
@@ -92,11 +161,36 @@ export default function LoginPage() {
             disabled={loading}
             className="w-full py-2 px-4 bg-orange-600 text-white font-semibold rounded-lg shadow-md hover:bg-orange-700 transition disabled:opacity-60"
           >
-            {loading ? "Giriş yapılıyor..." : "Login"}
+            {loading ? "Giriş yapılıyor..." : "Giriş Yap"}
           </button>
         </form>
 
-        {/* … alttaki sosyal kısım aynı … */}
+        {/* Ayırıcı */}
+      <div className="my-6 flex items-center">
+        <div className="flex-grow border-t border-gray-300"></div>
+        <span className="px-3 text-gray-400 text-sm">Veya devam et</span>
+        <div className="flex-grow border-t border-gray-300"></div>
+      </div>
+
+      {/* Sosyal Giriş */}
+      <div className="flex gap-3">
+        <button className="flex-1 py-2 px-4 border border-orange-300 rounded-lg text-gray-700 hover:bg-orange-50 transition">
+          Google
+        </button>
+        <button className="flex-1 py-2 px-4 border border-orange-300 rounded-lg text-gray-700 hover:bg-orange-50 transition">
+          GitHub
+        </button>
+      </div>
+            
+            {/* Kayıt Linki */}
+      <p className="text-sm text-center text-gray-600 mt-6">
+        Hesabın yok mu ? Hemen kayıt ol •{" "}
+        <Link href="/auth/Register" className="text-orange-600 hover:underline">
+          Kayıt Ol
+        </Link>
+      </p>
+
+
       </div>
     </div>
   );

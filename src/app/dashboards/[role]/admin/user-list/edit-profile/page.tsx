@@ -1,3 +1,4 @@
+// src/app/dashboards/[role]/admin/user-list/edit-profile/page.tsx
 'use client';
 
 import * as React from 'react';
