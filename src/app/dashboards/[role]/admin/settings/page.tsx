@@ -56,9 +56,9 @@ function isBase64Like(s: string) {
 }
 function guessMimeFromBase64(s: string) {
   if (s.startsWith("iVBOR")) return "image/png";
-  if (s.startsWith("/9j/"))   return "image/jpeg";
-  if (s.startsWith("R0lG"))   return "image/gif";
-  if (s.startsWith("UklGR"))  return "image/webp";
+  if (s.startsWith("/9j/")) return "image/jpeg";
+  if (s.startsWith("R0lG")) return "image/gif";
+  if (s.startsWith("UklGR")) return "image/webp";
   return "image/jpeg";
 }
 function toDisplaySrc(raw?: string): string {
@@ -138,81 +138,91 @@ export default function SettingsPage() {
     }
   }, []);
 
+  function toNumericId(b: BannerCard | undefined, idOrStr: string | number) {
+  if (!b) return null;
+  if (typeof b.numericId === "number") return b.numericId;      // API int id zaten var
+  // bazı kayıtlar string "43" dönebiliyor
+  const n = Number.parseInt(String(b.id), 10);
+  return Number.isFinite(n) ? n : null;
+}
+
   // ---------- GeneralSettings: PATCH
   async function saveGeneral() {
-  setSavingGeneral(true);
-  setError(null);
-  setOkMsg(null);
+    setSavingGeneral(true);
+    setError(null);
+    setOkMsg(null);
 
-  // 1) temiz DTO
-  const dtoBase = {
-    appName: (appName || "").trim(),
-    appTitle: (appTitle || "").trim(),
-    keywords: (keywords || "").trim(),
-    email: (email || "").trim(),
-    whatsApp: (whatsapp || "").trim(),   // swagger böyle gösteriyor
-    address: (address || "").trim(),
-    mapEmbedCode: (mapEmbedCode || "").trim(),
-    logoPath: (logoPath || "").trim(),
-  };
+    // 1) temiz DTO
+    const dtoBase = {
+      appName: (appName || "").trim(),
+      appTitle: (appTitle || "").trim(),
+      keywords: (keywords || "").trim(),
+      email: (email || "").trim(),
+      whatsApp: (whatsapp || "").trim(),   // swagger böyle gösteriyor
+      address: (address || "").trim(),
+      mapEmbedCode: (mapEmbedCode || "").trim(),
+      logoPath: (logoPath || "").trim(),
+    };
 
-  // hızlı client-side kontrol (opsiyonel)
-  if (!dtoBase.appName || !dtoBase.appTitle) {
-    setSavingGeneral(false);
-    setError("Lütfen App Adı ve App Başlığı alanlarını doldurun.");
-    return;
-  }
-
-  // denenecek istek kombinasyonları
-  const routes = [
-    { url: `${API_BASE}/api/admin/GeneralSettings/update-general-settings`, method: "PATCH", body: dtoBase },
-    { url: `${API_BASE}/api/admin/GeneralSettings/update-general-settings`, method: "PUT",   body: dtoBase },
-    { url: `${API_BASE}/api/admin/GeneralSettings/update-general-settings`, method: "POST",  body: dtoBase },
-    // admin’siz rota ihtimali
-    { url: `${API_BASE}/api/GeneralSettings/update-general-settings`,       method: "PATCH", body: dtoBase },
-    // bazı backendlere "whatsapp" küçük harf lazım olabiliyor
-    { url: `${API_BASE}/api/admin/GeneralSettings/update-general-settings`, method: "PATCH",
-      body: { ...dtoBase, whatsapp: dtoBase.whatsApp, whatsApp: undefined } as any },
-  ];
-
-  // debug: ne gönderiyoruz
-  console.log("[GeneralSettings] outgoing payload try-order:", routes.map(r => ({ url: r.url, method: r.method, body: r.body })));
-
-  let lastErrMsg = "";
-  for (const r of routes) {
-    try {
-      const res = await fetch(r.url, {
-        method: r.method,
-        headers: { "Content-Type": "application/json; charset=utf-8" },
-        body: JSON.stringify(r.body),
-      });
-
-      if (res.ok) {
-        setOkMsg("Genel ayarlar güncellendi.");
-        await loadGeneral();
-        setSavingGeneral(false);
-        return;
-      }
-
-      // hata gövdesini topla
-      const problem = await readAny(res);
-      const msg = typeof problem === "string"
-        ? problem
-        : (problem?.title || problem?.message || problem?.detail || `HTTP ${res.status}`);
-      lastErrMsg = `[${r.method} ${r.url}] ${msg}`;
-      console.warn("saveGeneral failed:", lastErrMsg, problem);
-      // 500 ise sonraki fallback’e geç
-      if (res.status >= 500) continue;
-      // 4xx ise diğerlerini denemek mantıksız olabilir ama yine de devam edelim
-    } catch (e: any) {
-      lastErrMsg = `[${r.method} ${r.url}] ${e?.message || e}`;
-      console.warn("saveGeneral exception:", e);
+    // hızlı client-side kontrol (opsiyonel)
+    if (!dtoBase.appName || !dtoBase.appTitle) {
+      setSavingGeneral(false);
+      setError("Lütfen App Adı ve App Başlığı alanlarını doldurun.");
+      return;
     }
-  }
 
-  setError(lastErrMsg || "Genel ayarlar kaydedilemedi (sunucu 500).");
-  setSavingGeneral(false);
-}
+    // denenecek istek kombinasyonları
+    const routes = [
+      { url: `${API_BASE}/api/admin/GeneralSettings/update-general-settings`, method: "PATCH", body: dtoBase },
+      { url: `${API_BASE}/api/admin/GeneralSettings/update-general-settings`, method: "PUT", body: dtoBase },
+      { url: `${API_BASE}/api/admin/GeneralSettings/update-general-settings`, method: "POST", body: dtoBase },
+      // admin’siz rota ihtimali
+      { url: `${API_BASE}/api/GeneralSettings/update-general-settings`, method: "PATCH", body: dtoBase },
+      // bazı backendlere "whatsapp" küçük harf lazım olabiliyor
+      {
+        url: `${API_BASE}/api/admin/GeneralSettings/update-general-settings`, method: "PATCH",
+        body: { ...dtoBase, whatsapp: dtoBase.whatsApp, whatsApp: undefined } as any
+      },
+    ];
+
+    // debug: ne gönderiyoruz
+    console.log("[GeneralSettings] outgoing payload try-order:", routes.map(r => ({ url: r.url, method: r.method, body: r.body })));
+
+    let lastErrMsg = "";
+    for (const r of routes) {
+      try {
+        const res = await fetch(r.url, {
+          method: r.method,
+          headers: { "Content-Type": "application/json; charset=utf-8" },
+          body: JSON.stringify(r.body),
+        });
+
+        if (res.ok) {
+          setOkMsg("Genel ayarlar güncellendi.");
+          await loadGeneral();
+          setSavingGeneral(false);
+          return;
+        }
+
+        // hata gövdesini topla
+        const problem = await readAny(res);
+        const msg = typeof problem === "string"
+          ? problem
+          : (problem?.title || problem?.message || problem?.detail || `HTTP ${res.status}`);
+        lastErrMsg = `[${r.method} ${r.url}] ${msg}`;
+        console.warn("saveGeneral failed:", lastErrMsg, problem);
+        // 500 ise sonraki fallback’e geç
+        if (res.status >= 500) continue;
+        // 4xx ise diğerlerini denemek mantıksız olabilir ama yine de devam edelim
+      } catch (e: any) {
+        lastErrMsg = `[${r.method} ${r.url}] ${e?.message || e}`;
+        console.warn("saveGeneral exception:", e);
+      }
+    }
+
+    setError(lastErrMsg || "Genel ayarlar kaydedilemedi (sunucu 500).");
+    setSavingGeneral(false);
+  }
 
   // ---------- Banner list
   const loadBanners = React.useCallback(async () => {
@@ -225,16 +235,22 @@ export default function SettingsPage() {
 
       const mapped: BannerCard[] = arr
         .filter(x => x && x.isActive === true && x.isDeleted === false)
-        .map(x => ({
-          id: String(x.guid ?? x.id ?? crypto.randomUUID()),
-          numericId: typeof x.id === "number" ? x.id : (typeof x.id === "string" ? Number(x.id) || null : null),
-          guid: x.guid ?? null,
-          title: x.title ?? "",
-          link: x.link ?? "",
-          description: x.description ?? "",
-          image: toDisplaySrc(x.images?.[0]),
-          isActive: true,
-        }));
+        .map(x => {
+          const rawId = x.id;
+          const numericId =
+            typeof rawId === "number" ? rawId :
+              (typeof rawId === "string" && /^\d+$/.test(rawId) ? Number(rawId) : null);
+          return {
+            id: String(x.guid ?? rawId ?? crypto.randomUUID()),
+            numericId,
+            guid: x.guid ?? null,
+            title: x.title ?? "",
+            link: x.link ?? "",
+            description: x.description ?? "",
+            image: toDisplaySrc(x.images?.[0]),
+            isActive: true,
+          };
+        });
 
       setBanners(mapped);
     } catch (e: any) {
@@ -325,50 +341,30 @@ export default function SettingsPage() {
     setSaving(true); setError(null); setOkMsg(null);
     try {
       const b = banners.find(x => String(x.id) === String(idOrStr));
-      const patchPayload: any = {
-        id: b?.numericId ?? undefined,
-        guid: b?.guid ?? undefined,
-        isDeleted: true,
-        isActive: false,
-        title: b?.title ?? "",
-        link: b?.link ?? "",
-        description: b?.description ?? "",
-      };
-      let res = await fetch(`${API_BASE}/api/Banner/update-banner`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(patchPayload),
-      });
+      const bannerId = toNumericId(b, idOrStr);
 
-      if (!res.ok && res.status === 400) {
-        const qs =
-          b?.guid ? `guid=${encodeURIComponent(b.guid)}` :
-          b?.numericId ? `id=${b.numericId}` :
-          `id=${encodeURIComponent(String(idOrStr))}`;
-
-        const tryUrls = [
-          `${API_BASE}/api/Banner/delete-banner?${qs}`,
-          `${API_BASE}/api/Banner/delete?${qs}`,
-        ];
-        let ok = false, lastErr: any = null;
-        for (const url of tryUrls) {
-          try {
-            const r = await fetch(url, { method: "DELETE" });
-            if (r.ok) { ok = true; break; }
-            lastErr = await r.text();
-          } catch (e) { lastErr = e; }
-        }
-        if (!ok) throw new Error(typeof lastErr === "string" ? lastErr : "Silme başarısız (DELETE).");
-      } else if (!res.ok) {
-        const prob = await readProblem(res);
-        throw new Error(typeof prob === "string" ? prob : (prob?.title || prob?.message || `HTTP ${res.status}`));
+      if (bannerId == null) {
+        throw new Error("Bu banner için sayısal BannerId bulunamadı.");
       }
 
-      setBanners(prev => prev.filter(x => String(x.id) !== String(idOrStr)));
+      const res = await fetch(`${API_BASE}/api/Banner/delete-banner/${bannerId}`, {
+        method: "DELETE",
+      });
+
+      if (!res.ok) {
+        const prob = await readProblem(res);
+        const msg = typeof prob === "string" ? prob : (prob?.title || prob?.message || `HTTP ${res.status}`);
+        throw new Error(`Silinemedi: ${msg}`);
+      }
+
+      // UI’dan anında çıkar + istersen tekrar yükle
+      setBanners(prev => prev.filter(x => toNumericId(x, x.id) !== bannerId));
       setOkMsg("Banner silindi.");
     } catch (e: any) {
       setError(e?.message || "Banner silinemedi.");
-    } finally { setSaving(false); }
+    } finally {
+      setSaving(false);
+    }
   }
 
   // logo "Kaydet" tuşu sadece logoPath'i doldurur (upload endpoint yoksa)

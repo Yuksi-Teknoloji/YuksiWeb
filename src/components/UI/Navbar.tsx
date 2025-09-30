@@ -1,3 +1,4 @@
+//src/components/UI/Navbar.tsx
 "use client";
 import { useState } from "react";
 
@@ -9,7 +10,7 @@ export default function Navbar() {
   };
 
   return (
-    <nav className="bg-orange-500 shadow-lg relative z-10">
+    <nav className="bg-orange-500 shadow-lg sticky top-0 z-[100]">
       <div className="container mx-auto flex items-center justify-between px-6 py-4"> {/* moderate height */}
         {/* Logo */}
         <div className="flex items-center space-x-4">

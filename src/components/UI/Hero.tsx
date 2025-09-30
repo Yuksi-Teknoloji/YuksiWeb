@@ -14,10 +14,7 @@ export type Slide = {
 
 export default function HeroCarousel({ slides = [] }: { slides?: Slide[] }) {
   // İstersen statikler kalsın; yoksa [] yap
-  const staticImages: Slide[] = [
-    { src: "/icons/b2.png", alt: "static-1", title: "Statik Başlık 1", description: "Statik açıklama 1" },
-    { src: "/icons/b3.png", alt: "static-2", title: "Statik Başlık 2", description: "Statik açıklama 2" },
-  ];
+  const staticImages: Slide[] = [];
 
   // dışarıdan gelen + statik olanları birleştir
   const images = useMemo<Slide[]>(
@@ -46,9 +43,8 @@ export default function HeroCarousel({ slides = [] }: { slides?: Slide[] }) {
               key={index}
               src={img.src}
               alt={img.alt ?? `Slide ${index + 1}`}
-              className={`w-full h-full object-cover transition-opacity duration-700 ${
-                index === currentIndex ? "opacity-100" : "opacity-0 absolute inset-0"
-              }`}
+              className={`w-full h-full object-cover transition-opacity duration-700 ${index === currentIndex ? "opacity-100" : "opacity-0 absolute inset-0"
+                }`}
               loading="eager"
             />
           );
@@ -56,9 +52,8 @@ export default function HeroCarousel({ slides = [] }: { slides?: Slide[] }) {
           return (
             <div
               key={`wrap-${index}`}
-              className={`absolute inset-0 transition-opacity duration-700 ${
-                index === currentIndex ? "opacity-100 z-10" : "opacity-0 -z-10"
-              }`}
+              className={`absolute inset-0 transition-opacity duration-700 ${index === currentIndex ? "opacity-100 z-10" : "opacity-0 -z-10"
+                }`}
             >
               {img.link ? (
                 <a href={img.link} target="_blank" rel="noreferrer" className="block w-full h-full">
@@ -70,7 +65,7 @@ export default function HeroCarousel({ slides = [] }: { slides?: Slide[] }) {
 
               {/* Başlık & açıklama overlay */}
               {(img.title || img.description) && (
-                <div className="absolute inset-0 flex items-end">
+                <div className="absolute inset-0 flex items-end pointer-events-none">
                   <div className="w-full p-4 sm:p-6 md:p-8 bg-gradient-to-t from-black/70 via-black/30 to-transparent">
                     {img.title && (
                       <h2 className="text-white text-xl sm:text-2xl md:text-3xl font-semibold drop-shadow">
@@ -111,9 +106,8 @@ export default function HeroCarousel({ slides = [] }: { slides?: Slide[] }) {
             <button
               key={i}
               onClick={() => setCurrentIndex(i)}
-              className={`h-2.5 w-2.5 rounded-full transition ${
-                i === currentIndex ? "bg-white" : "bg-white/50"
-              }`}
+              className={`h-2.5 w-2.5 rounded-full transition ${i === currentIndex ? "bg-white" : "bg-white/50"
+                }`}
               aria-label={`Slide ${i + 1}`}
             />
           ))}

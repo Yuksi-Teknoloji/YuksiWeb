@@ -1,8 +1,9 @@
-//src/components/auth/LoginForm.tsx
+// src/components/auth/LoginForm.tsx
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { decodeJwt, isExpired, roleSegment, type JwtClaims } from "@/utils/jwt";
 
 const HOME_BY_ROLE: Record<string, string> = {
   admin: "/dashboards/admin/admin",
@@ -11,47 +12,70 @@ const HOME_BY_ROLE: Record<string, string> = {
   corporate: "/dashboards/corporate/corporate",
   marketing: "/dashboards/marketing/marketing",
   carrier: "/dashboards/carrier/carrier",
+  customer: "/",
 };
 
-// bazı backend'ler farklı isimlerle döndürüyor olabilir
+// backend aliaslarını toparla (TAM SENİN LİSTENE GÖRE)
 const ROLE_ALIASES: Record<string, string> = {
+  // senin verdiğin isimler (hepsini lowercase karşılaştırıyoruz)
+  individual: "customer",
+  corporate: "corporate",
+  restaurant: "restaurant",
+  reseller: "bayi",
+  company: "corporate",
+  admin: "admin",
+  salesrepresentative: "marketing",
+  courier: "carrier",
+  // ek olası aliaslar
   restaurants: "restaurant",
   dealer: "bayi",
   dealers: "bayi",
-  courier: "carrier",
+  driver: "carrier",
   kuryeci: "carrier",
 };
 
-function base64UrlToJson(b64url: string) {
-  const b64 = b64url.replace(/-/g, "+").replace(/_/g, "/");
-  const pad = "=".repeat((4 - (b64.length % 4)) % 4);
-  const json =
-    typeof window === "undefined"
-      ? Buffer.from(b64 + pad, "base64").toString("utf8")
-      : decodeURIComponent(
-          atob(b64 + pad)
-            .split("")
-            .map((c) => "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2))
-            .join("")
-        );
-  return JSON.parse(json);
-}
-function decodeJwt(token: string): any {
-  const parts = token.split(".");
-  if (parts.length < 2) return null;
-  return base64UrlToJson(parts[1]);
-}
-function normalizeRole(raw?: string) {
+function normalizeRole(raw?: string | null) {
   const r = String(raw || "").toLowerCase().trim();
   return ROLE_ALIASES[r] || r;
 }
 
+// Response’tan token’ı akıllıca çek
+function extractToken(raw: any): string | null {
+  if (!raw) return null;
+
+  // doğrudan string jwt
+  if (typeof raw === "string") {
+    if (raw.split(".").length === 3) return raw;
+    try { return extractToken(JSON.parse(raw)); } catch { return null; }
+  }
+
+  // en yaygın yerler
+  return (
+    raw.token ||
+    raw.access_token ||
+    raw.accessToken ||
+    raw.jwt ||
+    raw?.data?.accessToken ||   // <— ÖNEMLİ: senin backend’in
+    raw?.data?.token ||
+    raw?.result?.accessToken ||
+    raw?.result?.token ||
+    null
+  );
+}
+
+function persistToken(token: string, exp?: number) {
+  try { localStorage.setItem("auth_token", token); } catch { }
+  const attrs = ["Path=/", "SameSite=Lax"];
+  if (exp) attrs.push(`Expires=${new Date(exp * 1000).toUTCString()}`);
+  document.cookie = `auth_token=${token}; ${attrs.join("; ")}`;
+}
+
 export default function LoginPage() {
+  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const router = useRouter();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -59,53 +83,80 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      const res = await fetch("/api/login", {
+      // Doğrudan backend
+      const res = await fetch("http://40.90.226.14:8080/api/Auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
       });
 
-      const text = await res.text();
+      const rawText = await res.text();
       let data: any = null;
-      try { data = text ? JSON.parse(text) : null; } catch {}
+      try { data = rawText ? JSON.parse(rawText) : null; } catch { data = rawText; }
 
       if (!res.ok) {
-        setErr((data && (data.message || data.error)) || "Giriş başarısız.");
+        const msg = (typeof data === "object" && (data?.message || data?.error)) || "Giriş başarısız.";
+        setErr(msg);
         return;
       }
 
-      // token varsa claim’den role çek
-      const token = data?.token || data?.access_token || data?.jwt;
-      let role: string | undefined;
+      // payload yapın: { isSuccessful, data: { accessToken, roles:[], ... }, ... }
+      const token = extractToken(data);
+      if (!token) {
+        setErr("Token alınamadı.");
+        return;
+      }
+      const refreshToken =
+        data?.refreshToken || data?.data?.refreshToken || data?.result?.refreshToken;
 
-      if (token) {
-        const payload = decodeJwt(token) || {};
-        role =
-          payload.role ??
-          payload.userType ??
-          payload["http://schemas.microsoft.com/ws/2008/06/identity/claims/role"];
+      if (refreshToken) {
+        try { localStorage.setItem("refresh_token", refreshToken); } catch { }
+        // istersen cookie de yazabilirsin
+        document.cookie = `refresh_token=${encodeURIComponent(refreshToken)}; Path=/; SameSite=Lax`;
       }
 
-      // yoksa session’dan sor (cookie tabanlı backend’ler için)
+      const claims = decodeJwt<JwtClaims>(token);
+      if (!claims) {
+        setErr("Token çözümlenemedi.");
+        return;
+      }
+      if (isExpired(claims)) {
+        setErr("Oturum süresi dolmuş görünüyor.");
+        return;
+      }
+
+      // 1) JWT içindeki userType öncelikli
+      let role = normalizeRole(roleSegment(claims.userType));
+
+      // 2) boşsa backend'in roles alanından dene
       if (!role) {
-        const sRes = await fetch("/api/session", { cache: "no-store" });
-        const sData = await sRes.json().catch(() => ({}));
-        role = sData?.role;
+        const firstRole = Array.isArray(data?.data?.roles) ? data.data.roles[0] : undefined;
+        role = normalizeRole(firstRole);
       }
 
-      const roleNormalized = normalizeRole(role);
-      const dest =
-        HOME_BY_ROLE[roleNormalized] ||
-        "/dashboards/admin/admin"; // sağlam fallback
+      // 3) yine yoksa son çare: claims.role benzeri
+      if (!role) {
+        const anyClaimRole =
+          (claims as any).role ||
+          (claims as any)["http://schemas.microsoft.com/ws/2008/06/identity/claims/role"];
+        role = normalizeRole(anyClaimRole);
+      }
 
-      router.replace(dest); // geri tuşu login'e dönmez
-      return;
+      // token'ı sakla
+      persistToken(token, claims.exp);
+
+      // rota seç
+      const dest =
+        HOME_BY_ROLE[role] ||
+        HOME_BY_ROLE["customer"]; // bilinmeyene ana sayfa
+
+      router.replace(dest);
     } catch {
       setErr("Ağ hatası. Lütfen tekrar deneyin.");
     } finally {
       setLoading(false);
     }
-  }
+  };
 
   return (
     <div className="min-h-screen flex items-center justify-center">
@@ -123,9 +174,7 @@ export default function LoginPage() {
           )}
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Email
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
             <input
               type="email"
               value={email}
@@ -137,9 +186,7 @@ export default function LoginPage() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Şifre
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Şifre</label>
             <input
               type="password"
               value={password}
@@ -151,9 +198,7 @@ export default function LoginPage() {
           </div>
 
           <div className="flex justify-end">
-            <a href="/forgot-password" className="text-sm text-orange-600 hover:underline">
-              Şifremi Unuttum
-            </a>
+            <a href="/forgot-password" className="text-sm text-orange-600 hover:underline">Şifremi Unuttum</a>
           </div>
 
           <button
@@ -165,32 +210,27 @@ export default function LoginPage() {
           </button>
         </form>
 
-        {/* Ayırıcı */}
-      <div className="my-6 flex items-center">
-        <div className="flex-grow border-t border-gray-300"></div>
-        <span className="px-3 text-gray-400 text-sm">Veya devam et</span>
-        <div className="flex-grow border-t border-gray-300"></div>
-      </div>
+        <div className="my-6 flex items-center">
+          <div className="flex-grow border-t border-gray-300"></div>
+          <span className="px-3 text-gray-400 text-sm">Veya devam et</span>
+          <div className="flex-grow border-t border-gray-300"></div>
+        </div>
 
-      {/* Sosyal Giriş */}
-      <div className="flex gap-3">
-        <button className="flex-1 py-2 px-4 border border-orange-300 rounded-lg text-gray-700 hover:bg-orange-50 transition">
-          Google
-        </button>
-        <button className="flex-1 py-2 px-4 border border-orange-300 rounded-lg text-gray-700 hover:bg-orange-50 transition">
-          GitHub
-        </button>
-      </div>
-            
-            {/* Kayıt Linki */}
-      <p className="text-sm text-center text-gray-600 mt-6">
-        Hesabın yok mu ? Hemen kayıt ol •{" "}
-        <Link href="/auth/Register" className="text-orange-600 hover:underline">
-          Kayıt Ol
-        </Link>
-      </p>
+        <div className="flex gap-3">
+          <button className="flex-1 py-2 px-4 border border-orange-300 rounded-lg text-gray-700 hover:bg-orange-50 transition">
+            Google
+          </button>
+          <button className="flex-1 py-2 px-4 border border-orange-300 rounded-lg text-gray-700 hover:bg-orange-50 transition">
+            GitHub
+          </button>
+        </div>
 
-
+        <p className="text-sm text-center text-gray-600 mt-6">
+          Hesabın yok mu? Hemen kayıt ol •{" "}
+          <Link href="/auth/Register" className="text-orange-600 hover:underline">
+            Kayıt Ol
+          </Link>
+        </p>
       </div>
     </div>
   );

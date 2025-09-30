@@ -65,7 +65,9 @@ export async function fetchBanners(): Promise<{id:number; src:string; title?:str
   const res = await fetch(`${API_BASE}/api/Banner/get-banners`, { cache: "no-store" });
   const data = await res.json().catch(()=> ({}));
   const arr: BannerItem[] = Array.isArray(data?.data) ? data.data : Array.isArray(data) ? data : [];
-  return arr.map(b => ({
+  return arr
+  .filter((x: any) => x?.isActive === true && x?.isDeleted === false)
+  .map(b => ({
     id: Number(b.id),
     src: toDisplaySrc(b.images?.[0]),
     title: b.title,
