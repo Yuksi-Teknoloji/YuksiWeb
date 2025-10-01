@@ -1,13 +1,22 @@
-export default function AuthLayout({
+// src/app/layout.tsx
+import React from "react";
+import "./globals.css"; // import your global styles if any
+
+export const metadata = {
+  title: "YuksiWeb Admin",
+  description: "Admin Dashboard",
+};
+
+export default function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-100">
-      <div className="w-full max-w-md bg-white shadow-lg rounded-xl p-6">
+    <html lang="tr">
+      <body className="min-h-screen bg-neutral-100 antialiased">
         {children}
-      </div>
-    </div>
+      </body>
+    </html>
   );
 }
