@@ -103,7 +103,7 @@ export default function LoginPage() {
       // payload yapın: { isSuccessful, data: { accessToken, roles:[], ... }, ... }
       const token = extractToken(data);
       if (!token) {
-        setErr("Token alınamadı.");
+        setErr("Giriş yapılamadı.");
         return;
       }
       const refreshToken =

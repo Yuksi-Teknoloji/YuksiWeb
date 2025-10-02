@@ -139,90 +139,66 @@ export default function SettingsPage() {
   }, []);
 
   function toNumericId(b: BannerCard | undefined, idOrStr: string | number) {
-  if (!b) return null;
-  if (typeof b.numericId === "number") return b.numericId;      // API int id zaten var
-  // bazı kayıtlar string "43" dönebiliyor
-  const n = Number.parseInt(String(b.id), 10);
-  return Number.isFinite(n) ? n : null;
-}
+    if (!b) return null;
+    if (typeof b.numericId === "number") return b.numericId;      // API int id zaten var
+    // bazı kayıtlar string "43" dönebiliyor
+    const n = Number.parseInt(String(b.id), 10);
+    return Number.isFinite(n) ? n : null;
+  }
 
   // ---------- GeneralSettings: PATCH
   async function saveGeneral() {
-    setSavingGeneral(true);
-    setError(null);
-    setOkMsg(null);
+  setSavingGeneral(true);
+  setError(null);
+  setOkMsg(null);
 
-    // 1) temiz DTO
-    const dtoBase = {
-      appName: (appName || "").trim(),
-      appTitle: (appTitle || "").trim(),
-      keywords: (keywords || "").trim(),
-      email: (email || "").trim(),
-      whatsApp: (whatsapp || "").trim(),   // swagger böyle gösteriyor
-      address: (address || "").trim(),
-      mapEmbedCode: (mapEmbedCode || "").trim(),
-      logoPath: (logoPath || "").trim(),
-    };
+  // swagger’daki alan adlarıyla birebir
+  const dto = {
+    appName: (appName || "").trim(),
+    appTitle: (appTitle || "").trim(),
+    keywords: (keywords || "").trim(),
+    email: (email || "").trim(),
+    whatsApp: (whatsapp || "").trim(), // dikkat: 'whatsApp'
+    address: (address || "").trim(),
+    mapEmbedCode: (mapEmbedCode || "").trim(),
+    logoPath: (logoPath || "").trim(),
+  };
 
-    // hızlı client-side kontrol (opsiyonel)
-    if (!dtoBase.appName || !dtoBase.appTitle) {
-      setSavingGeneral(false);
-      setError("Lütfen App Adı ve App Başlığı alanlarını doldurun.");
-      return;
-    }
+  if (!dto.appName || !dto.appTitle) {
+    setSavingGeneral(false);
+    setError("Lütfen App Adı ve App Başlığı alanlarını doldurun.");
+    return;
+  }
 
-    // denenecek istek kombinasyonları
-    const routes = [
-      { url: `${API_BASE}/api/admin/GeneralSettings/update-general-settings`, method: "PATCH", body: dtoBase },
-      { url: `${API_BASE}/api/admin/GeneralSettings/update-general-settings`, method: "PUT", body: dtoBase },
-      { url: `${API_BASE}/api/admin/GeneralSettings/update-general-settings`, method: "POST", body: dtoBase },
-      // admin’siz rota ihtimali
-      { url: `${API_BASE}/api/GeneralSettings/update-general-settings`, method: "PATCH", body: dtoBase },
-      // bazı backendlere "whatsapp" küçük harf lazım olabiliyor
+  try {
+    const res = await fetch(
+      `${API_BASE}/api/admin/GeneralSettings/set-general-settings`,
       {
-        url: `${API_BASE}/api/admin/GeneralSettings/update-general-settings`, method: "PATCH",
-        body: { ...dtoBase, whatsapp: dtoBase.whatsApp, whatsApp: undefined } as any
-      },
-    ];
-
-    // debug: ne gönderiyoruz
-    console.log("[GeneralSettings] outgoing payload try-order:", routes.map(r => ({ url: r.url, method: r.method, body: r.body })));
-
-    let lastErrMsg = "";
-    for (const r of routes) {
-      try {
-        const res = await fetch(r.url, {
-          method: r.method,
-          headers: { "Content-Type": "application/json; charset=utf-8" },
-          body: JSON.stringify(r.body),
-        });
-
-        if (res.ok) {
-          setOkMsg("Genel ayarlar güncellendi.");
-          await loadGeneral();
-          setSavingGeneral(false);
-          return;
-        }
-
-        // hata gövdesini topla
-        const problem = await readAny(res);
-        const msg = typeof problem === "string"
-          ? problem
-          : (problem?.title || problem?.message || problem?.detail || `HTTP ${res.status}`);
-        lastErrMsg = `[${r.method} ${r.url}] ${msg}`;
-        console.warn("saveGeneral failed:", lastErrMsg, problem);
-        // 500 ise sonraki fallback’e geç
-        if (res.status >= 500) continue;
-        // 4xx ise diğerlerini denemek mantıksız olabilir ama yine de devam edelim
-      } catch (e: any) {
-        lastErrMsg = `[${r.method} ${r.url}] ${e?.message || e}`;
-        console.warn("saveGeneral exception:", e);
+        method: "POST",
+        headers: { "Content-Type": "application/json; charset=utf-8" },
+        body: JSON.stringify(dto),
       }
+    );
+
+    if (!res.ok) {
+      const prob = await readAny(res);
+      const msg =
+        (typeof prob === "string" && prob) ||
+        prob?.title ||
+        prob?.message ||
+        prob?.detail ||
+        `HTTP ${res.status}`;
+      throw new Error(msg);
     }
 
-    setError(lastErrMsg || "Genel ayarlar kaydedilemedi (sunucu 500).");
+    setOkMsg("Genel ayarlar kaydedildi.");
+    await loadGeneral(); // ekranda güncel değerleri göster
+  } catch (e: any) {
+    setError(e?.message || "Genel ayarlar kaydedilemedi.");
+  } finally {
     setSavingGeneral(false);
   }
+}
 
   // ---------- Banner list
   const loadBanners = React.useCallback(async () => {
@@ -276,19 +252,41 @@ export default function SettingsPage() {
 
   // ---------- Banner add/update/delete (aynı)
   async function addBanner() {
-    if (!bannerFile) { setError("Lütfen bir görsel seçin."); return; }
+    // dosya zorunlu olmasın; URL varsa onu gönderelim
     setSaving(true); setError(null); setOkMsg(null);
     try {
-      const b64 = await fileToBase64Raw(bannerFile);
+      // kullanıcının URL yazmış olabileceği alanları koklayalım
+      const maybeUrl = [bannerLink, bannerDesc].find(
+        (x) => typeof x === "string" && /^https?:\/\//i.test(x.trim())
+      );
+
+      let images: string[] = [];
+      let imageFileNames: string[] | undefined;
+
+      if (bannerFile) {
+        // dosya seçilmişse – eski davranış (base64)
+        const b64 = await fileToBase64Raw(bannerFile);
+        images = [b64];
+        imageFileNames = [bannerFile.name];
+      } else if (maybeUrl) {
+        // dosya yok ama URL var → URL olarak gönder
+        images = [maybeUrl.trim()];
+      } else {
+        setSaving(false);
+        setError("Lütfen bir görsel dosyası seçin ya da bir görsel URL'si girin.");
+        return;
+      }
+
       const payload = {
         title: bannerTitle || "Banner",
         link: bannerLink || "",
         description: bannerDesc || "",
-        images: [b64],
-        imageFileNames: [bannerFile.name],
+        images,
+        ...(imageFileNames ? { imageFileNames } : {}),
         isActive: true,
         isDeleted: false,
       };
+
       const res = await fetch(`${API_BASE}/api/Banner/set-banner`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -316,11 +314,17 @@ export default function SettingsPage() {
         link: b.link ?? "",
         description: b.description ?? "",
       };
+
       if (b._file) {
+        // yeni dosya seçildiyse eski davranış
         const raw = await fileToBase64Raw(b._file);
         body.images = [raw];
         body.imageFileNames = [b._file.name];
+      } else if (b.image) {
+        // yeni dosya yoksa mevcut kaynağı (çoğu zaman URL) aynen gönder
+        body.images = [b.image];
       }
+
       const res = await fetch(`${API_BASE}/api/Banner/update-banner`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },

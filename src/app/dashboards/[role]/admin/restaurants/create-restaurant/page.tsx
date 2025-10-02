@@ -29,8 +29,6 @@ export default function RestaurantCreatePage() {
     };
 
     try {
-      // İstersen doğrudan backend’e da vurabilirsin:
-      // const res = await fetch("http://40.90.226.14:8080/api/Restaurant/register", {...})
       const res = await fetch("/api/Restaurant/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -43,10 +41,8 @@ export default function RestaurantCreatePage() {
       try { data = text ? JSON.parse(text) : null; } catch { data = text; }
 
       if (!res.ok) {
-        throw new Error(
-          (typeof data === "object" ? data?.message || data?.error : null) ||
-            `İstek başarısız (HTTP ${res.status})`
-        );
+        const msg = extractErrorMessage(data) || `İstek başarısız (HTTP ${res.status})`;
+        throw new Error(msg);
       }
 
       const msg =
@@ -60,6 +56,47 @@ export default function RestaurantCreatePage() {
       setSaving(false);
     }
   }
+  function extractErrorMessage(raw: any): string | null {
+  if (!raw) return null;
+
+  // Hata gövdesi bazen raw.error altında geliyor
+  const container = (raw && typeof raw === "object" && raw.error) ? raw.error : raw;
+
+  // 1) ASP.NET ModelState: { errors: { Field: [msg1, msg2], ... } }
+  const errs = container?.errors || container?.data?.errors;
+  if (errs && typeof errs === "object") {
+    const parts: string[] = [];
+    for (const key of Object.keys(errs)) {
+      const arr = errs[key];
+      if (Array.isArray(arr) && arr.length) {
+        for (const v of arr) {
+          const msg = typeof v === "string" ? v : String(v);
+          parts.push(`${key}: ${msg}`);
+        }
+      } else if (typeof arr === "string") {
+        parts.push(`${key}: ${arr}`);
+      }
+    }
+    if (parts.length) return parts.join("\n");
+  }
+
+  // 2) Düz string ise
+  if (typeof container === "string") return container;
+
+  // 3) Genel alanlar (fallback)
+  const direct =
+    container?.message ||
+    container?.error ||
+    container?.detail ||
+    container?.title ||
+    container?.data?.message ||
+    container?.data?.error;
+  if (typeof direct === "string" && direct.trim()) return direct.trim();
+
+  // 4) Son çare: stringify
+  try { return JSON.stringify(container); } catch { return String(container); }
+}
+
 
   return (
     <div className="space-y-4">
