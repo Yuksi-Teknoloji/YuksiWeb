@@ -50,7 +50,7 @@ export default function EditProfilePage() {
             <div>
               <label className="mb-1 block text-sm font-medium text-neutral-700">Telefon No</label>
               <input
-                placeholder="your-email@domain.com"
+                placeholder="+905319677149"
                 className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none ring-2 ring-transparent transition focus:border-neutral-300 focus:ring-sky-200"
               />
             </div>

@@ -24,7 +24,15 @@ export default function Footer() {
           <div className="footer-widget">
             <h4 className="text-lg font-bold text-black mb-4">Bilgi ve Sözleşmeler</h4>
             <ul className="list-disc list-inside text-black space-y-2">
-              <li>Yüksi Hakkımızda</li>
+              <li>
+                 <a
+                  href="http://localhost:3000/About"
+                  rel="noopener noreferrer"
+                  className="hover:underline"
+                >
+                  Yüksi Hakkımızda
+                </a>
+                </li>
               <li>Kurye Gizlilik Sözleşmesi</li>
               <li>Kurye Taşıyıcı Sözleşmesi</li>
               <li>Gizlilik Sözleşmesi</li>
@@ -36,12 +44,28 @@ export default function Footer() {
           <div className="footer-widget">
             <h4 className="text-lg font-bold text-black mb-4">YÜKSİ</h4>
             <ul className="list-disc list-inside text-black space-y-2">
-              <li>Anasayfa</li>
-              <li>İletişim</li>
+              <li>
+                <a
+                  href="http://localhost:3000"
+                  rel="noopener noreferrer"
+                  className="hover:underline"
+                >
+                  Ana Sayfa
+                </a>
+                </li>
+              <li>
+               <a
+                  href="http://localhost:3000/Communication"
+                  rel="noopener noreferrer"
+                  className="hover:underline"
+                >
+                  İletişim
+                </a>
+                </li>
               <li>info@yuksi.com.tr</li>
               <li>
                 <a
-                  href="https://yuksi.com.tr/resellerv8"
+                  href="http://localhost:3000/auth/Login"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="hover:underline"
@@ -51,7 +75,7 @@ export default function Footer() {
               </li>
               <li>
                 <a
-                  href="https://yuksi.com.tr/restaurantv1"
+                  href="http://localhost:3000/auth/Login"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="hover:underline"
@@ -61,7 +85,7 @@ export default function Footer() {
               </li>
               <li>
                 <a
-                  href="https://yuksi.com.tr/companyv1"
+                  href="http://localhost:3000/auth/Login"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="hover:underline"

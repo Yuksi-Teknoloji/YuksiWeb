@@ -278,7 +278,7 @@ export default function SettingsPage() {
       }
 
       const payload = {
-        title: bannerTitle || "Banner",
+        title: bannerTitle || "",
         link: bannerLink || "",
         description: bannerDesc || "",
         images,
