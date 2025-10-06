@@ -55,34 +55,22 @@ export default function Navbar() {
           </Link>
 
           {/* Hakkımızda dropdown */}
-          <Link href="/About" className="hover:text-black transition-colors">
+          <Link href="/Main/About" className="hover:text-black transition-colors">
             Hakkımızda
           </Link>
 
-          <Link href="/Services" className="hover:text-black transition-colors">
+          <Link href="/Main/Services" className="hover:text-black transition-colors">
             Hizmetler
           </Link>
 
-          <Link href="/Help" className="hover:text-black transition-colors">
+          <Link href="/Main/Help" className="hover:text-black transition-colors">
             Yardım
           </Link>
 
           {/* İletişim dropdown */}
-          <div className="relative">
-            <button
-              onClick={() => toggleMenu("communication")}
-              className="hover:text-black transition-colors"
-            >
-              İletişim
-            </button>
-            {openMenu === "communication" && (
-              <div className="absolute left-0 mt-2 w-44 bg-white text-black rounded shadow-lg z-50">
-                <Link href="/Communication" className="block px-4 py-2 hover:bg-gray-100">
-                  Destek
-                </Link>
-              </div>
-            )}
-          </div>
+          <Link href="/Main/Communication" className="hover:text-black transition-colors">
+            İletişim
+          </Link>
 
           {/* Aramıza Katıl dropdown */}
           <div className="relative">
@@ -118,19 +106,19 @@ export default function Navbar() {
 
             {/* Hakkımızda (mobilde akordeon) */}
             <li className="border-t border-white/10">
-              <Link href="/About" className="block py-2 hover:text-black" onClick={closeAll}>
+              <Link href="/Main/About" className="block py-2 hover:text-black" onClick={closeAll}>
                 Yardım
               </Link>
             </li>
 
             <li className="border-t border-white/10">
-              <Link href="/Services" className="block py-2 hover:text-black" onClick={closeAll}>
+              <Link href="/Main/Services" className="block py-2 hover:text-black" onClick={closeAll}>
                 Hizmetler
               </Link>
             </li>
 
             <li className="border-t border-white/10">
-              <Link href="/Help" className="block py-2 hover:text-black" onClick={closeAll}>
+              <Link href="/Main/Help" className="block py-2 hover:text-black" onClick={closeAll}>
                 Yardım
               </Link>
             </li>
@@ -147,7 +135,7 @@ export default function Navbar() {
               </button>
               {openMenu === "communication" && (
                 <div className="pl-4 pb-2 space-y-1">
-                  <Link href="/Communication" className="block py-1 hover:text-black" onClick={closeAll}>
+                  <Link href="/Main/Communication" className="block py-1 hover:text-black" onClick={closeAll}>
                     Destek
                   </Link>
                 </div>

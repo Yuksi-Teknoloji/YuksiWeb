@@ -2,7 +2,7 @@
 "use client";
 
 import Link from "next/link";
-import Navbar from "../../components/UI/Navbar";
+import Navbar from "../../../components/UI/Navbar";
 import { useState } from "react";
 import Footer from "@/components/UI/Footer";
 

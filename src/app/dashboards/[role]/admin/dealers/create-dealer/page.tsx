@@ -1,9 +1,11 @@
+//src/app/dashboards/[role]/admin/dealers/create-dealer/page.tsx
 'use client';
 
 import * as React from 'react';
+import { useParams } from 'next/navigation';
 
-export default function CreateDealerPage({ params }: { params: { role: string } }) {
-  const role = params.role;
+export default function CreateDealerPage() {
+  const {role } = useParams() as {role:string};
 
   const [form, setForm] = React.useState({
     accountType: '',
@@ -25,7 +27,7 @@ export default function CreateDealerPage({ params }: { params: { role: string } 
 
   function onSave() {
     // API entegrasyonu burada yapılabilir
-    alert('Bayi kaydedildi (demo).');
+    alert(`Bayi kaydedildi (demo). Rol: ${role}`);
   }
 
   return (
@@ -189,14 +191,6 @@ export default function CreateDealerPage({ params }: { params: { role: string } 
           </button>
         </div>
       </section>
-    </div>
-  );
-}
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <label className="mb-1 block text-sm font-semibold text-neutral-700">{label}</label>
-      {children}
     </div>
   );
 }

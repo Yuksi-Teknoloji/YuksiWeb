@@ -435,6 +435,8 @@ export default function SettingsPage() {
         </section>
       </div>
 
+         <br />
+         
       {/* Orta bölüm – sol form + sağ liste */}
       <div className="grid grid--main">
         {/* Sol – GENERAL SETTINGS (bağlandı) */}

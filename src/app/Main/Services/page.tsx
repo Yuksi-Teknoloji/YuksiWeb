@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import Navbar from "../../components/UI/Navbar";
-import Footer from "../../components/UI/Footer"
+import Navbar from "../../../components/UI/Navbar";
+import Footer from "../../../components/UI/Footer"
 import TransportationServices from "@/components/UI/TransportationServices";
 
 

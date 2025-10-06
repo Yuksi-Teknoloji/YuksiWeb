@@ -2,7 +2,7 @@
 "use client";
 
 import Link from "next/link";
-import Navbar from "../../components/UI/Navbar"; 
+import Navbar from "../../../components/UI/Navbar"; 
 import Footer from "@/components/UI/Footer";
 import AboutSection from "@/components/UI/AboutSection";
 import AboutContent from "./Content/page";

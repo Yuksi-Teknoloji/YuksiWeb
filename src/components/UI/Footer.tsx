@@ -26,7 +26,7 @@ export default function Footer() {
             <ul className="list-disc list-inside text-black space-y-2">
               <li>
                  <a
-                  href="http://localhost:3000/About"
+                  href="http://localhost:3000/Main/About"
                   rel="noopener noreferrer"
                   className="hover:underline"
                 >
@@ -55,7 +55,7 @@ export default function Footer() {
                 </li>
               <li>
                <a
-                  href="http://localhost:3000/Communication"
+                  href="http://localhost:3000/Main/Communication"
                   rel="noopener noreferrer"
                   className="hover:underline"
                 >
@@ -80,7 +80,7 @@ export default function Footer() {
                   rel="noopener noreferrer"
                   className="hover:underline"
                 >
-                  Restaurant Girişi
+                  Restoran Girişi
                 </a>
               </li>
               <li>
