@@ -2,12 +2,12 @@
 
 
 import Link from "next/link";
-import Navbar from "../../../components/UI/Navbar"; 
+import Navbar from "../../..//../components/UI/Navbar"; 
 import Footer from "@/components/UI/Footer";
-import AboutContentPage from "./Content/page";
 import AboutSection from "@/components/UI/AboutSection";
+import PrivacyContentPage from "./Content/page";
 
-export default function AboutPage() {
+export default function PrivacyPage() {
   return (
     <div className="bg-white min-h-screen overflow-x-hidden">
       {/* Navbar */}
@@ -27,14 +27,14 @@ export default function AboutPage() {
                 </Link>
               </li>
               <li className="text-gray-500">/</li>
-              <li className="text-gray-700">Hakkımızda</li>
+              <li className="text-gray-700">Gizlilik Sözleşmesi</li>
             </ul>
           </div>
         </div>
       </div>
       
       {/* About */}
-      <AboutContentPage />
+      <PrivacyContentPage />
 
       {/* About */}
       <AboutSection />

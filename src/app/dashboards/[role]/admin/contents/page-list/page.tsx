@@ -1,96 +1,182 @@
+// src/app/dashboards/[role]/admin/contents/page-list/page.tsx
 'use client';
 
 import * as React from 'react';
 
-type ContentRow = {
-  id: string;
-  title: string;     // İçerik Başlığı
-  type: 'page' | 'post';
-  badge?: string;    // küçük turuncu etiket (örn: YÜKSİ)
+/* ---------- API tipleri ---------- */
+type ApiSubSection = {
+  id: number;
+  title: string;
+  contentType: string | number;  // GET: string, PUT: number
+  showInMenu: boolean;
+  showInFooter: boolean;
+  content: string;
+  isActive: boolean;
+  isDeleted: boolean;
 };
 
-const initialRows: ContentRow[] = [
-  { id: 'c-1', title: 'Yüksi Hakkımızda', type: 'page', badge: 'YÜKSİ' },
+type ContentRow = {
+  id: string;
+  title: string;
+  type: 'page' | 'post';
+  badge?: string;
+  raw: ApiSubSection;
+};
+
+/* ---------- ContentType eşleştirme (string <-> enum) ---------- */
+const CONTENT_TYPES: { value: number; label: string }[] = [
+  { value: 1, label: 'Destek' },
+  { value: 2, label: 'Hakkimizda' },
+  { value: 3, label: 'Iletisim' },
+  { value: 4, label: 'GizlilikPolitikasi' },
+  { value: 5, label: 'KullanimKosullari' },
 ];
 
+const enumToLabel = (v: number) =>
+  CONTENT_TYPES.find(x => x.value === v)?.label ?? 'Destek';
+
+const labelToEnum = (lbl: string) =>
+  CONTENT_TYPES.find(
+    x => x.label.toLowerCase() === String(lbl).trim().toLowerCase()
+  )?.value ?? 1;
+
+/* ---------- API BASE ---------- */
+const API_BASE = (process.env.NEXT_PUBLIC_API_BASE || 'http://40.90.226.14:8080').replace(/\/+$/, '');
+
 export default function ContentPageList() {
-  const [rows, setRows] = React.useState<ContentRow[]>(initialRows);
-  const [open, setOpen] = React.useState(false);
+  const [rows, setRows] = React.useState<ContentRow[]>([]);
+  const [loading, setLoading] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
-  const handleAdd = () => setOpen(true);
+  const [openCreate, setOpenCreate] = React.useState(false);
+  const [editRow, setEditRow] = React.useState<ContentRow | null>(null);
 
-  const handleDelete = (id: string) => {
-    setRows(prev => prev.filter(r => r.id !== id));
-  };
+  const [okMsg, setOkMsg] = React.useState<string | null>(null);
+  const [globalErr, setGlobalErr] = React.useState<string | null>(null);
 
-  const handleEdit = (id: string) => {
-    const r = rows.find(x => x.id === id);
-    if (!r) return;
-    const newTitle = prompt('İçerik Başlığı', r.title) ?? r.title;
-    const newType = (prompt('Tür (page/post)', r.type) as 'page' | 'post') ?? r.type;
-    setRows(prev => prev.map(x => (x.id === id ? { ...x, title: newTitle, type: newType } : x)));
-  };
+  /* -------- LIST (GET /api/SubSection) -------- */
+  const load = React.useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const r = await fetch(`${API_BASE}/api/SubSection`, { cache: 'no-store' });
+      const t = await r.text();
+      const j = t ? JSON.parse(t) : null;
+      if (!r.ok) throw new Error(j?.message || j?.title || `HTTP ${r.status}`);
 
-  function handleCreate(payload: {
-    title: string;
-    type: 'page' | 'post';
-    showInMenu: boolean;
-    showInFooter: boolean;
-    content: string;
-    imageUrl: string;
-  }) {
-    setRows(prev => [
-      { id: crypto.randomUUID(), title: payload.title, type: payload.type, badge: 'YÜKSİ' },
-      ...prev,
-    ]);
-    setOpen(false);
+      let list: ApiSubSection[] = Array.isArray(j?.data) ? j.data : [];
+
+      // 🔎 Sadece aktif ve silinmemiş kayıtlar
+      list = list.filter(it => it.isActive === true && it.isDeleted === false);
+
+      const mapped: ContentRow[] = list.map(it => ({
+        id: String(it.id),
+        title: it.title ?? '-',
+        type: 'page',
+        badge: it.showInMenu || it.showInFooter ? 'YÜKSİ' : undefined,
+        raw: it,
+      }));
+      setRows(mapped);
+    } catch (e: any) {
+      setError(e?.message || 'Alt bölüm listesi alınamadı.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  React.useEffect(() => { load(); }, [load]);
+
+  /* -------- SOFT DELETE (Delete /api/SubSection/{Id}) -------- */
+
+  function toNumericId(rowOrId: { id?: any } | string | number): number | null {
+  const raw = typeof rowOrId === 'object' && rowOrId !== null ? (rowOrId as any).id : rowOrId;
+  const n = Number(String(raw).trim());
+  return Number.isFinite(n) ? n : null; }
+
+  async function readProblem(res: Response): Promise<any> {
+  const txt = await res.text();
+  try { return txt ? JSON.parse(txt) : null; } catch { return txt || null; }
+}
+
+  async function handleDelete(idOrStr: string | number) {
+  setGlobalErr(null);
+  setOkMsg(null);
+  try {
+    const r = rows.find(x => String(x.id) === String(idOrStr));
+    const subId = toNumericId(r ?? idOrStr);
+    if (subId == null) throw new Error('Bu kayıt için sayısal Id bulunamadı.');
+
+    if (!confirm('Silmek istediğine emin misin?')) return;
+
+    const res = await fetch(`${API_BASE}/api/SubSection/${subId}`, { method: 'DELETE' });
+    if (!res.ok) {
+      const prob = await readProblem(res);
+      const msg = typeof prob === 'string' ? prob : (prob?.title || prob?.message || `HTTP ${res.status}`);
+      throw new Error(`Silinemedi: ${msg}`);
+    }
+
+    // UI’dan anında çıkar (optimistic)
+    setRows(prev => prev.filter(x => toNumericId(x) !== subId));
+
+
+    await load();
+
+    setOkMsg('Kayıt silindi.');
+  } catch (e: any) {
+    setGlobalErr(e?.message || 'Silme işlemi başarısız.');
   }
+}
+
+  /* -------- EDIT open -------- */
+  const openEdit = (id: string) => {
+    const r = rows.find(x => x.id === id) || null;
+    if (r) setEditRow(r);
+  };
 
   return (
     <div className="space-y-4">
-      {/* Sayfa başlığı */}
-      <div className="px-2 sm:px-0">
+      <div className="flex items-center justify-between px-2 sm:px-0">
         <h1 className="text-2xl font-semibold tracking-tight">İçerik Listesi</h1>
-      </div>
-
-      {/* Kart */}
-      <section className="rounded-2xl border border-neutral-200/70 bg-white shadow-sm soft-card">
-        {/* Üst şerit */}
-        <div className="flex items-center justify-end p-5 sm:p-6">
-          <button
-            onClick={handleAdd}
-            className="rounded-xl bg-sky-500 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-sky-600 active:translate-y-px"
-          >
+        <div className="flex items-center gap-2">
+          <button onClick={load} className="rounded-xl bg-neutral-200 px-4 py-2 text-sm font-medium text-neutral-800 hover:bg-neutral-300">
+            Yenile
+          </button>
+          <button onClick={() => setOpenCreate(true)} className="rounded-xl bg-sky-500 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-sky-600 active:translate-y-px">
             Yeni Ekle
           </button>
         </div>
+      </div>
 
-        <div className="h-px w-full bg-neutral-200/70" />
-
-        {/* Tablo */}
+      <section className="rounded-2xl border border-neutral-200/70 bg-white shadow-sm soft-card">
         <div className="overflow-x-auto">
           <table className="min-w-full table-fixed">
             <thead>
               <tr className="text-left text-sm text-neutral-500">
                 <th className="px-6 py-3 font-medium">İçerik Başlığı</th>
                 <th className="w-40 px-6 py-3 font-medium">Tür</th>
-                <th className="w-44 px-6 py-3" />
+                <th className="w-60 px-6 py-3" />
               </tr>
             </thead>
             <tbody>
-              {rows.map(r => (
+              {loading && (
+                <tr><td colSpan={3} className="px-6 py-10 text-center text-neutral-500">Yükleniyor…</td></tr>
+              )}
+              {!loading && error && (
+                <tr><td colSpan={3} className="px-6 py-10 text-center text-rose-600">{error}</td></tr>
+              )}
+              {!loading && !error && rows.map(r => (
                 <tr key={r.id} className="border-t border-neutral-200/70 align-middle">
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-3">
-                      {r.badge && (
-                        <span className="inline-flex items-center rounded-sm bg-orange-500 px-2 py-0.5 text-[11px] font-semibold text-white">
-                          {r.badge}
-                        </span>
-                      )}
+                      {r.badge && <span className="inline-flex items-center rounded-sm bg-orange-500 px-2 py-0.5 text-[11px] font-semibold text-white">{r.badge}</span>}
                       <span className="font-semibold text-neutral-900">{r.title}</span>
                     </div>
                   </td>
-                  <td className="px-6 py-4 text-neutral-700">{r.type}</td>
+                  <td className="px-6 py-4 text-neutral-700">
+                    {typeof r.raw.contentType === 'number'
+                      ? enumToLabel(r.raw.contentType)
+                      : enumToLabel(labelToEnum(String(r.raw.contentType)))}
+                  </td>
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-2">
                       <button
@@ -100,7 +186,7 @@ export default function ContentPageList() {
                         Sil
                       </button>
                       <button
-                        onClick={() => handleEdit(r.id)}
+                        onClick={() => openEdit(r.id)}
                         className="rounded-md bg-green-500 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-green-600 active:translate-y-px"
                       >
                         Edit
@@ -109,88 +195,97 @@ export default function ContentPageList() {
                   </td>
                 </tr>
               ))}
-
-              {rows.length === 0 && (
-                <tr>
-                  <td colSpan={3} className="px-6 py-12 text-center text-sm text-neutral-500">
-                    Henüz içerik yok. Sağ üstten <strong>“Yeni Ekle”</strong> ile ekleyebilirsin.
-                  </td>
-                </tr>
+              {!loading && !error && rows.length === 0 && (
+                <tr><td colSpan={3} className="px-6 py-12 text-center text-sm text-neutral-500">Kayıt yok. Sağ üstten <strong>“Yeni Ekle”</strong> ile ekleyebilirsin.</td></tr>
               )}
             </tbody>
           </table>
         </div>
       </section>
 
-      {open && <CreateModal onClose={() => setOpen(false)} onCreate={handleCreate} />}
+      {openCreate && (
+        <CreateModal
+          onClose={() => setOpenCreate(false)}
+          onCreated={async () => {
+            setOpenCreate(false);
+            await load();
+          }}
+        />
+      )}
+
+      {editRow && (
+        <EditModal
+          row={editRow}
+          onClose={() => setEditRow(null)}
+          onUpdated={async () => {
+            setEditRow(null);
+            await load();
+          }}
+        />
+      )}
     </div>
   );
 }
 
-/* -------- Modal (öncekilerle aynı stil) -------- */
-
+/* ---------------------- CREATE (POST /api/SubSection) ---------------------- */
 function CreateModal({
   onClose,
-  onCreate,
+  onCreated,
 }: {
   onClose: () => void;
-  onCreate: (data: {
-    title: string;
-    type: 'page' | 'post';
-    showInMenu: boolean;
-    showInFooter: boolean;
-    content: string;
-    imageUrl: string;
-  }) => void;
+  onCreated: (created: ApiSubSection) => void;
 }) {
   const [title, setTitle] = React.useState('');
-  const [type, setType] = React.useState<'page' | 'post'>('page');
+  const [contentType, setContentType] = React.useState<number>(1); // Destek
   const [showInMenu, setShowInMenu] = React.useState(false);
   const [showInFooter, setShowInFooter] = React.useState(false);
   const [content, setContent] = React.useState('');
-  const [file, setFile] = React.useState<File | null>(null);
-  const [preview, setPreview] = React.useState<string>('');
 
-  React.useEffect(() => {
-    if (!file) {
-      setPreview('');
-      return;
-    }
-    const url = URL.createObjectURL(file);
-    setPreview(url);
-    return () => URL.revokeObjectURL(url);
-  }, [file]);
+  const [saving, setSaving] = React.useState(false);
+  const [err, setErr] = React.useState<string | null>(null);
 
-  function submit(e: React.FormEvent) {
+  async function submit(e: React.FormEvent) {
     e.preventDefault();
-    onCreate({
-      title,
-      type,
-      showInMenu,
-      showInFooter,
-      content,
-      imageUrl: preview,
-    });
+    setSaving(true); setErr(null);
+    try {
+      // yeni kayıtlar default aktif / silinmemiş
+      const payload = {
+        title,
+        contentType,
+        showInMenu,
+        showInFooter,
+        content,
+        isActive: true,
+        isDeleted: false,
+      };
+      const r = await fetch(`${API_BASE}/api/SubSection`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        cache: 'no-store',
+      });
+      const t = await r.text();
+      const d = t ? JSON.parse(t) : null;
+      if (!r.ok) throw new Error(d?.message || d?.title || `HTTP ${r.status}`);
+
+      const created: ApiSubSection = (d?.data ?? d) as ApiSubSection;
+      onCreated(created);
+    } catch (e: any) {
+      setErr(e?.message || 'Kayıt oluşturulamadı.');
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-start overflow-y-auto bg-black/50 p-4">
       <div className="mx-auto w-full max-w-6xl rounded-2xl bg-white shadow-xl">
-        {/* Header */}
         <div className="flex items-center justify-between border-b px-5 py-4">
           <h3 className="text-xl font-semibold">Yeni Alt Bölüm Oluştur</h3>
-          <button
-            className="rounded-full p-2 hover:bg-neutral-100"
-            onClick={onClose}
-            aria-label="Kapat"
-          >
-            ✕
-          </button>
+          <button className="rounded-full p-2 hover:bg-neutral-100" onClick={onClose} aria-label="Kapat">✕</button>
         </div>
 
-        {/* Body */}
         <form onSubmit={submit} className="space-y-6 p-5">
-          {/* Başlık */}
           <input
             value={title}
             onChange={(e) => setTitle(e.target.value)}
@@ -198,87 +293,155 @@ function CreateModal({
             className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 text-neutral-800 outline-none ring-2 ring-transparent transition focus:border-neutral-300 focus:ring-sky-200"
           />
 
-          {/* Tür */}
           <div>
-            <label className="mb-2 block text-sm font-medium text-neutral-700">İçerik Türü</label>
+            <label className="mb-2 block text-sm font-medium text-neutral-700">Content Type</label>
             <select
-              value={type}
-              onChange={(e) => setType(e.target.value as 'page' | 'post')}
-              className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 text-neutral-800 outline-none ring-2 ring-transparent transition focus:border-neutral-300 focus:ring-sky-200"
+              value={contentType}
+              onChange={(e) => setContentType(Number(e.target.value))}
+              className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2"
             >
-              <option value="page">Sayfa (page)</option>
-              <option value="post">Gönderi (post)</option>
+              {CONTENT_TYPES.map(ct => (
+                <option key={ct.value} value={ct.value}>{ct.label}</option>
+              ))}
             </select>
           </div>
 
-          {/* Toggle'lar */}
           <div className="space-y-3">
             <label className="flex items-center gap-3">
-              <input
-                type="checkbox"
-                checked={showInMenu}
-                onChange={(e) => setShowInMenu(e.target.checked)}
-                className="h-5 w-5 rounded border-neutral-300"
-              />
+              <input type="checkbox" checked={showInMenu} onChange={(e) => setShowInMenu(e.target.checked)} className="h-5 w-5 rounded border-neutral-300" />
               <span>Menü'de Göster</span>
             </label>
-
             <label className="flex items-center gap-3">
-              <input
-                type="checkbox"
-                checked={showInFooter}
-                onChange={(e) => setShowInFooter(e.target.checked)}
-                className="h-5 w-5 rounded border-neutral-300"
-              />
+              <input type="checkbox" checked={showInFooter} onChange={(e) => setShowInFooter(e.target.checked)} className="h-5 w-5 rounded border-neutral-300" />
               <span>Footer'da Göster</span>
             </label>
           </div>
 
-          {/* Editör benzetimi */}
           <div className="rounded-xl border border-neutral-300">
             <div className="flex items-center gap-3 border-b px-3 py-2 text-sm text-neutral-500">
-              <span>Paragraph</span>
-              <span className="mx-1">•</span>
-              <span>B</span>
-              <span>I</span>
-              <span>• • •</span>
+              <span>Paragraph</span><span className="mx-1">•</span><span>B</span><span>I</span><span>• • •</span>
             </div>
-            <textarea
-              rows={12}
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
-              className="h-[320px] w-full resize-y rounded-b-xl px-3 py-2 outline-none"
-            />
+            <textarea rows={10} value={content} onChange={(e) => setContent(e.target.value)} className="h-[280px] w-full resize-y rounded-b-xl px-3 py-2 outline-none" />
           </div>
 
-          {/* Resim yükle */}
-          <div>
-            <label className="mb-2 block text-sm font-medium text-neutral-700">Resim yükle</label>
-            <div className="flex items-center gap-3">
-              <input
-                type="file"
-                accept="image/*"
-                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-                className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 text-neutral-800 outline-none ring-2 ring-transparent transition focus:border-neutral-300 focus:ring-sky-200"
-              />
-              {preview && (
-                <img
-                  src={preview}
-                  alt="Önizleme"
-                  className="h-14 w-14 rounded-lg object-cover ring-1 ring-neutral-200"
-                />
-              )}
+          {err && <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{err}</div>}
+
+          <div className="flex items-center gap-3">
+            <button type="button" onClick={onClose} className="rounded-xl px-4 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-100">Kapat</button>
+            <button type="submit" disabled={saving || !title} className="rounded-xl bg-indigo-500 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-600 disabled:opacity-60">
+              {saving ? 'Kaydediliyor…' : 'Kaydet'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------- EDIT (PUT /api/SubSection/{id}) ---------------------- */
+function EditModal({
+  onClose,
+  row,
+  onUpdated,
+}: {
+  onClose: () => void;
+  row: ContentRow;
+  onUpdated: (updated: ApiSubSection) => void;
+}) {
+  // GET’te contentType string gelebilir; PUT için integer’a çeviriyoruz.
+  const initialTypeNumber =
+    typeof row.raw.contentType === 'number'
+      ? row.raw.contentType
+      : labelToEnum(String(row.raw.contentType));
+
+  const [title, setTitle] = React.useState(row.raw.title ?? '');
+  const [contentType, setContentType] = React.useState<number>(initialTypeNumber);
+  const [showInMenu, setShowInMenu] = React.useState(!!row.raw.showInMenu);
+  const [showInFooter, setShowInFooter] = React.useState(!!row.raw.showInFooter);
+  const [content, setContent] = React.useState(row.raw.content ?? '');
+  const [saving, setSaving] = React.useState(false);
+  const [err, setErr] = React.useState<string | null>(null);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true); setErr(null);
+    try {
+      const payload = {
+        id: Number(row.id),
+        title,
+        contentType,        // PUT’ta integer
+        showInMenu,
+        showInFooter,
+        content,
+        isActive: true,
+        isDeleted: false,
+      };
+      const r = await fetch(`${API_BASE}/api/SubSection/${row.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        cache: 'no-store',
+      });
+      const t = await r.text();
+      const d = t ? JSON.parse(t) : null;
+      if (!r.ok) throw new Error(d?.message || d?.title || `HTTP ${r.status}`);
+
+      const updated: ApiSubSection = (d?.data ?? d) as ApiSubSection;
+      onUpdated(updated);
+    } catch (e: any) {
+      setErr(e?.message || 'Güncelleme başarısız.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-start overflow-y-auto bg-black/50 p-4">
+      <div className="mx-auto w-full max-w-6xl rounded-2xl bg-white shadow-xl">
+        <div className="flex items-center justify-between border-b px-5 py-4">
+          <h3 className="text-xl font-semibold">Alt Bölüm Düzenle (ID: {row.id})</h3>
+          <button className="rounded-full p-2 hover:bg-neutral-100" onClick={onClose} aria-label="Kapat">✕</button>
+        </div>
+
+        <form onSubmit={submit} className="space-y-6 p-5">
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="md:col-span-2">
+              <label className="mb-2 block text-sm font-medium text-neutral-700">Başlık</label>
+              <input value={title} onChange={(e) => setTitle(e.target.value)} className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2" />
             </div>
+
+            <div>
+              <label className="mb-2 block text-sm font-medium text-neutral-700">Content Type</label>
+              <select value={contentType} onChange={(e) => setContentType(Number(e.target.value))} className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2">
+                {CONTENT_TYPES.map(ct => <option key={ct.value} value={ct.value}>{ct.label}</option>)}
+              </select>
+            </div>
+            <br />
+
+            <label className="flex items-center gap-3">
+              <input type="checkbox" checked={showInMenu} onChange={(e) => setShowInMenu(e.target.checked)} className="h-5 w-5 rounded border-neutral-300" />
+              <span>Menü'de Göster</span>
+            </label>
+
+            <label className="flex items-center gap-3">
+              <input type="checkbox" checked={showInFooter} onChange={(e) => setShowInFooter(e.target.checked)} className="h-5 w-5 rounded border-neutral-300" />
+              <span>Footer'da Göster</span>
+            </label>
           </div>
 
-          {/* Footer */}
-          <div className="flex items-center justify-start">
-            <button
-              type="submit"
-              className="rounded-xl bg-indigo-500 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-indigo-600"
-              disabled={!title}
-            >
-              Kaydet
+          <div className="rounded-xl border border-neutral-300">
+            <div className="flex items-center gap-3 border-b px-3 py-2 text-sm text-neutral-500">
+              <span>Paragraph</span><span className="mx-1">•</span><span>B</span><span>I</span><span>• • •</span>
+            </div>
+            <textarea rows={10} value={content} onChange={(e) => setContent(e.target.value)} className="h-[280px] w-full resize-y rounded-b-xl px-3 py-2 outline-none" />
+          </div>
+
+          {err && <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{err}</div>}
+
+          <div className="flex items-center gap-3">
+            <button type="button" onClick={onClose} className="rounded-xl px-4 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-100">Kapat</button>
+            <button type="submit" disabled={saving || !title} className="rounded-xl bg-indigo-600 px-5 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-60">
+              {saving ? 'Kaydediliyor…' : 'Güncelle'}
             </button>
           </div>
         </form>

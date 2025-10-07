@@ -33,10 +33,42 @@ export default function Footer() {
                   Yüksi Hakkımızda
                 </a>
                 </li>
-              <li>Kurye Gizlilik Sözleşmesi</li>
-              <li>Kurye Taşıyıcı Sözleşmesi</li>
-              <li>Gizlilik Sözleşmesi</li>
-              <li>Kullanıcı Sözleşmesi</li>
+             <li>
+                <a
+                  href="http://localhost:3000/Main/Contracts/Courier"
+                  rel="noopener noreferrer"
+                  className="hover:underline"
+                >
+                  Kurye Gizlilik Sözleşmesi
+                </a>
+                </li>
+               <li>
+                <a
+                  href="http://localhost:3000/Main/Contracts/Courier/Carrier"
+                  rel="noopener noreferrer"
+                  className="hover:underline"
+                >
+                  Kurye Taşıyıcı Sözleşmesi
+                </a>
+                </li>
+               <li>
+                <a
+                  href="http://localhost:3000/Main/Contracts/Privacy"
+                  rel="noopener noreferrer"
+                  className="hover:underline"
+                >
+                  Gizlilik Sözleşmesi
+                </a>
+                </li>
+               <li>
+                <a
+                  href="http://localhost:3000/Main/Contracts/User"
+                  rel="noopener noreferrer"
+                  className="hover:underline"
+                >
+                  Kullanıcı Sözleşmesi
+                </a>
+                </li>
             </ul>
           </div>
 
