@@ -124,13 +124,15 @@ export default function HelpContentPage() {
                   <div key={index} className="overflow-hidden rounded-xl border border-orange-500 shadow-sm">
                     <button
                       onClick={() => toggleFAQ(index)}
-                      className={`flex w-full items-center justify-between px-5 sm:px-6 py-4 sm:py-3 text-left text-base sm:text-lg font-semibold transition ${open ? 'bg-orange-600 text-white' : 'bg-orange-500 text-white'
-                        }`}
+                      className={`flex w-full items-center justify-between px-5 sm:px-6 py-4 sm:py-3 text-left text-base sm:text-lg font-semibold transition ${
+                        open ? 'bg-orange-600 text-white' : 'bg-orange-500 text-white'
+                      }`}
                     >
                       <span className="pr-4">{faq.question}</span>
                       <span
-                        className={`ml-3 inline-flex h-8 w-8 items-center justify-center rounded-md border transition ${open ? 'border-white/40 bg-white/10' : 'border-white/30 bg-white/10'
-                          }`}
+                        className={`ml-3 inline-flex h-8 w-8 items-center justify-center rounded-md border transition ${
+                          open ? 'border-white/40 bg-white/10' : 'border-white/30 bg-white/10'
+                        }`}
                         aria-hidden
                       >
                         {open ? '−' : '+'}

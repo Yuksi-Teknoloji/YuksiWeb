@@ -103,7 +103,14 @@ export default function CommunicationPage() {
         <div className="flex justify-center px-4">
           <div className="bg-gray-100 p-4 rounded-xl shadow-md w-full max-w-5xl">
             <h3 className="text-2xl font-semibold text-gray-700 mb-2">
-              Görüşlerinizi bizimle <span className="text-red-500">info@yuksi.com.tr</span>
+              Görüşlerinizi bizimle{" "}
+              <a
+                href="mailto:info@yuksi.com.tr"
+                className="text-red-500 hover:underline"
+                title="E-posta gönder"
+              >
+                info@yuksi.com.tr
+              </a>
             </h3>
             <h3 className="text-lg text-gray-700 mb-6">
               üzerinden ya da iletişim formu ile görüşlerinizi bizimle paylaşabilirsiniz
@@ -190,9 +197,8 @@ export default function CommunicationPage() {
               <button
                 type="submit"
                 disabled={isSubmitting}
-                className={`bg-orange-500 text-white py-3 px-6 rounded-md w-full font-medium text-lg hover:bg-orange-600 transition ${
-                  isSubmitting ? 'opacity-70 cursor-not-allowed' : ''
-                }`}
+                className={`bg-orange-500 text-white py-3 px-6 rounded-md w-full font-medium text-lg hover:bg-orange-600 transition ${isSubmitting ? 'opacity-70 cursor-not-allowed' : ''
+                  }`}
               >
                 {isSubmitting ? 'Gönderiliyor...' : 'Gönder'}
               </button>

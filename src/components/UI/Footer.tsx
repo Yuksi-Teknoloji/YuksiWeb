@@ -25,15 +25,15 @@ export default function Footer() {
             <h4 className="text-lg font-bold text-black mb-4">Bilgi ve Sözleşmeler</h4>
             <ul className="list-disc list-inside text-black space-y-2">
               <li>
-                 <a
+                <a
                   href="http://localhost:3000/Main/About"
                   rel="noopener noreferrer"
                   className="hover:underline"
                 >
                   Yüksi Hakkımızda
                 </a>
-                </li>
-             <li>
+              </li>
+              <li>
                 <a
                   href="http://localhost:3000/Main/Contracts/Courier"
                   rel="noopener noreferrer"
@@ -41,8 +41,8 @@ export default function Footer() {
                 >
                   Kurye Gizlilik Sözleşmesi
                 </a>
-                </li>
-               <li>
+              </li>
+              <li>
                 <a
                   href="http://localhost:3000/Main/Contracts/Courier/Carrier"
                   rel="noopener noreferrer"
@@ -50,8 +50,8 @@ export default function Footer() {
                 >
                   Kurye Taşıyıcı Sözleşmesi
                 </a>
-                </li>
-               <li>
+              </li>
+              <li>
                 <a
                   href="http://localhost:3000/Main/Contracts/Privacy"
                   rel="noopener noreferrer"
@@ -59,8 +59,8 @@ export default function Footer() {
                 >
                   Gizlilik Sözleşmesi
                 </a>
-                </li>
-               <li>
+              </li>
+              <li>
                 <a
                   href="http://localhost:3000/Main/Contracts/User"
                   rel="noopener noreferrer"
@@ -68,7 +68,7 @@ export default function Footer() {
                 >
                   Kullanıcı Sözleşmesi
                 </a>
-                </li>
+              </li>
             </ul>
           </div>
 
@@ -84,17 +84,25 @@ export default function Footer() {
                 >
                   Ana Sayfa
                 </a>
-                </li>
+              </li>
               <li>
-               <a
+                <a
                   href="http://localhost:3000/Main/Communication"
                   rel="noopener noreferrer"
                   className="hover:underline"
                 >
                   İletişim
                 </a>
-                </li>
-              <li>info@yuksi.com.tr</li>
+              </li>
+              <li>
+                <a
+                  href="mailto:info@yuksi.com.tr"
+                  className="hover:underline"
+                  title="E-posta gönder"
+                >
+                  info@yuksi.com.tr
+                </a>
+              </li>
               <li>
                 <a
                   href="http://localhost:3000/auth/Login"
@@ -131,12 +139,12 @@ export default function Footer() {
         </div>
 
         {/* Footer Bottom */}
-<div className="mt-12 text-center">
-  <p className="text-gray-500">&copy; 2025 Tüm hakları saklıdır @Yüksi</p>
-</div>
-
+        <div className="mt-12 text-center">
+          <p className="text-gray-500">&copy; 2025 Tüm hakları saklıdır @Yüksi</p>
         </div>
-      
+
+      </div>
+
     </footer>
   );
 }
