@@ -1,33 +1,103 @@
+// src/app/dashboards/[role]/admin/system/carrier-types/page.tsx
 'use client';
 
 import * as React from 'react';
+import { useParams } from 'next/navigation';
 
-type CarrierType = {
-  id: string;
+const API_BASE = (process.env.NEXT_PUBLIC_API_BASE || 'http://40.90.226.14:8080').replace(/\/+$/, '');
+
+type VehicleTypeApi = {
+  id: number;
   name: string;
-  openingKm: number;
-  openingPrice: number;
-  kmPrice: number;
-  imageUrl: string; // public/images/* ya da tam URL
+  description: string;
+  baseKm: number;
+  baseFare: number;
+  fareForPerKm: number;
+  fileId?: number;
+  filePath?: string;
+  fileName?: string;
 };
 
-const initialData: CarrierType[] = [
-  { id: 'ct-1', name: 'Kurye',    openingKm: 5,  openingPrice: 100,  kmPrice: 50,  imageUrl: '/images/kurye.png' },
-  { id: 'ct-2', name: 'Minivan',  openingKm: 5,  openingPrice: 500,  kmPrice: 50,  imageUrl: '/images/minivan.png' },
-  { id: 'ct-3', name: 'Panelvan', openingKm: 30, openingPrice: 2000, kmPrice: 100, imageUrl: '/images/panelvan.png' },
-];
+type Row = {
+  id: number;
+  name: string;
+  description: string;
+  baseKm: number;
+  baseFare: number;
+  fareForPerKm: number;
+  fileId?: number;
+  imageUrl?: string | null;
+  fileName?: string | null;
+};
+
+function toFullUrl(path?: string | null) {
+  if (!path) return null;
+  if (/^https?:\/\//i.test(path)) return path;
+  return `${API_BASE}${path.startsWith('/') ? path : `/${path}`}`;
+}
 
 export default function CarrierTypesPage() {
-  const [rows, setRows] = React.useState<CarrierType[]>(initialData);
-  const [open, setOpen] = React.useState(false);
+  const { role } = useParams<{ role: string }>();
 
-  const handleDelete = (id: string) => {
-    setRows(prev => prev.filter(r => r.id !== id));
-  };
+  const [rows, setRows] = React.useState<Row[]>([]);
+  const [loading, setLoading] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
-  function handleCreate(newItem: Omit<CarrierType, 'id'>) {
-    setRows(prev => [{ id: crypto.randomUUID(), ...newItem }, ...prev]);
-    setOpen(false);
+  const [openCreate, setOpenCreate] = React.useState(false);
+  const [editRow, setEditRow] = React.useState<Row | null>(null);
+
+  const load = React.useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/Vehicle/types`, { cache: 'no-store' });
+      const txt = await res.text();
+      const j = txt ? JSON.parse(txt) : null;
+
+      if (!res.ok) {
+        const msg = j?.message || j?.title || `HTTP ${res.status}`;
+        throw new Error(msg);
+      }
+
+      const list: VehicleTypeApi[] = Array.isArray(j?.data) ? j.data : (Array.isArray(j) ? j : []);
+      const mapped: Row[] = list.map(v => ({
+        id: v.id,
+        name: v.name,
+        description: v.description,
+        baseKm: v.baseKm,
+        baseFare: v.baseFare,
+        fareForPerKm: v.fareForPerKm,
+        fileId: v.fileId,
+        imageUrl: toFullUrl(v.filePath),
+        fileName: v.fileName ?? null,
+      }));
+
+      setRows(mapped);
+    } catch (e: any) {
+      setError(e?.message || 'Taşıyıcı türleri alınamadı.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  React.useEffect(() => { load(); }, [load]);
+
+  async function handleDelete(id: number) {
+    if (!confirm('Bu kaydı silmek istediğine emin misin?')) return;
+    const prev = rows;
+    setRows(p => p.filter(r => r.id !== id)); // optimistic
+    try {
+      const res = await fetch(`${API_BASE}/api/Vehicle/types/${id}`, { method: 'DELETE' });
+      if (!res.ok) {
+        setRows(prev);
+        const t = await res.text();
+        let msg = 'Silinemedi.';
+        try { msg = (t && JSON.parse(t)?.message) || msg; } catch {}
+        throw new Error(msg);
+      }
+    } catch (e: any) {
+      alert(e?.message || 'Silinemedi.');
+    }
   }
 
   return (
@@ -36,8 +106,8 @@ export default function CarrierTypesPage() {
       <div className="flex items-center justify-between gap-4 p-6">
         <h2 className="text-lg font-semibold">Taşıyıcı Türleri</h2>
         <button
-          onClick={() => setOpen(true)}
-          className="btn-accent rounded-2xl px-4 py-2 text-sm font-medium shadow-sm transition active:translate-y-px"
+          onClick={() => setOpenCreate(true)}
+          className="btn-accent rounded-2xl bg-orange-500 text-white px-4 py-2 text-sm font-medium shadow-sm transition active:translate-y-px"
         >
           Yeni Taşıyıcı Türü Ekle
         </button>
@@ -45,50 +115,76 @@ export default function CarrierTypesPage() {
 
       <div className="h-px w-full bg-neutral-200" />
 
+      {error && <div className="px-6 py-3 text-sm text-rose-600">{error}</div>}
+
       {/* Table */}
       <div className="overflow-x-auto">
-        <table className="min-w-full table-fixed">
+        <table className="min-w-full table-fixed text-[13px]">
           <thead>
             <tr className="text-left text-sm text-neutral-500">
-              <th className="w-40 px-6 py-4 font-medium">Resim</th>
-              <th className="px-6 py-4 font-medium">Taşıyıcı Türü</th>
-              <th className="w-40 px-6 py-4 font-medium">Açılış Km</th>
-              <th className="w-44 px-6 py-4 font-medium">Açılış Fiyatı</th>
-              <th className="w-40 px-6 py-4 font-medium">Km Fiyatı</th>
-              <th className="w-24 px-6 py-4" />
+              <th className="px-3 py-2 font-medium">Resim</th>
+              <th className="px-3 py-2 font-medium">Taşıyıcı Türü</th>
+              <th className="px-3 py-2 font-medium">Açıklama</th>
+              <th className="px-3 py-2 font-medium">Açılış Km</th>
+              <th className="px-3 py-2font-medium">Açılış Fiyatı</th>
+              <th className="px-3 py-2 font-medium">Km Fiyatı</th>
+              <th className="px-3 py-2" />
             </tr>
           </thead>
           <tbody>
-            {rows.map(r => (
+            {loading && (
+              <tr>
+                <td colSpan={7} className="px-6 py-10 text-center text-sm text-neutral-500">
+                  Yükleniyor…
+                </td>
+              </tr>
+            )}
+
+            {!loading && rows.map(r => (
               <tr key={r.id} className="border-t border-neutral-200 align-middle">
                 <td className="px-6 py-5">
-                  <img
-                    src={r.imageUrl}
-                    alt={r.name}
-                    className="h-16 w-auto rounded-xl bg-white object-contain ring-1 ring-neutral-200"
-                  />
+                  {r.imageUrl ? (
+                    <img
+                      src={r.imageUrl}
+                      alt={r.fileName || r.name}
+                      className="h-16 w-auto rounded-xl bg-white object-contain ring-1 ring-neutral-200"
+                    />
+                  ) : (
+                    <div className="grid h-16 w-24 place-items-center rounded-xl bg-neutral-100 text-xs text-neutral-500 ring-1 ring-neutral-200">
+                      Görsel yok
+                    </div>
+                  )}
                 </td>
                 <td className="px-6 py-5">
                   <div className="font-semibold text-neutral-900">{r.name}</div>
                 </td>
-                <td className="px-6 py-5 text-neutral-900">{r.openingKm}</td>
-                <td className="px-6 py-5 text-neutral-900">{r.openingPrice}</td>
-                <td className="px-6 py-5 text-neutral-900">{r.kmPrice}</td>
+                <td className="px-6 py-5 text-neutral-700">{r.description}</td>
+                <td className="px-6 py-5 text-neutral-900">{r.baseKm}</td>
+                <td className="px-6 py-5 text-neutral-900">{r.baseFare}</td>
+                <td className="px-6 py-5 text-neutral-900">{r.fareForPerKm}</td>
                 <td className="px-6 py-5">
-                  <button
-                    onClick={() => handleDelete(r.id)}
-                    className="rounded-xl bg-red-500 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-red-600 active:translate-y-px"
-                    aria-label={`Sil: ${r.name}`}
-                  >
-                    Sil
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setEditRow(r)}
+                      className="rounded-xl bg-emerald-500 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-600 active:translate-y-px"
+                    >
+                      Düzenle
+                    </button>
+                    <button
+                      onClick={() => handleDelete(r.id)}
+                      className="rounded-xl bg-red-500 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-red-600 active:translate-y-px"
+                      aria-label={`Sil: ${r.name}`}
+                    >
+                      Sil
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
 
-            {rows.length === 0 && (
+            {!loading && rows.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-6 py-12 text-center text-sm text-neutral-500">
+                <td colSpan={7} className="px-6 py-12 text-center text-sm text-neutral-500">
                   Henüz kayıt yok. Sağ üstten <strong>“Yeni Taşıyıcı Türü Ekle”</strong> ile ekleyebilirsin.
                 </td>
               </tr>
@@ -97,154 +193,178 @@ export default function CarrierTypesPage() {
         </table>
       </div>
 
-      {open && <AddCarrierTypeModal onClose={() => setOpen(false)} onCreate={handleCreate} />}
+      {openCreate && (
+        <UpsertModal
+          mode="create"
+          onClose={() => setOpenCreate(false)}
+          onSaved={async () => { setOpenCreate(false); await load(); }}
+        />
+      )}
+
+      {editRow && (
+        <UpsertModal
+          mode="edit"
+          row={editRow}
+          onClose={() => setEditRow(null)}
+          onSaved={async () => { setEditRow(null); await load(); }}
+        />
+      )}
     </main>
   );
 }
 
-/* ---------------------- Modal Component ---------------------- */
+/* ---------------------- Create / Edit Modal ---------------------- */
 
-function AddCarrierTypeModal({
+function UpsertModal({
+  mode,
+  row,
   onClose,
-  onCreate,
+  onSaved,
 }: {
+  mode: 'create' | 'edit';
+  row?: Row;
   onClose: () => void;
-  onCreate: (item: Omit<CarrierType, 'id'>) => void;
+  onSaved: () => void;
 }) {
-  const [name, setName] = React.useState('');
-  const [openingKm, setOpeningKm] = React.useState<number | ''>('');
-  const [openingPrice, setOpeningPrice] = React.useState<number | ''>('');
-  const [kmPrice, setKmPrice] = React.useState<number | ''>('');
-  const [file, setFile] = React.useState<File | null>(null);
-  const [preview, setPreview] = React.useState<string | null>(null);
+  const [name, setName] = React.useState(row?.name ?? '');
+  const [description, setDescription] = React.useState(row?.description ?? '');
+  const [baseKm, setBaseKm] = React.useState<number | ''>(row?.baseKm ?? '');
+  const [baseFare, setBaseFare] = React.useState<number | ''>(row?.baseFare ?? '');
+  const [fareForPerKm, setFareForPerKm] = React.useState<number | ''>(row?.fareForPerKm ?? '');
+  const [fileId, setFileId] = React.useState<number | ''>(row?.fileId ?? '');
 
-  React.useEffect(() => {
-    if (!file) {
-      setPreview(null);
-      return;
-    }
-    const url = URL.createObjectURL(file);
-    setPreview(url);
-    return () => URL.revokeObjectURL(url);
-  }, [file]);
+  const [saving, setSaving] = React.useState(false);
+  const [err, setErr] = React.useState<string | null>(null);
 
-  function submit(e: React.FormEvent) {
+  async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!name || openingKm === '' || openingPrice === '' || kmPrice === '') return;
+    setSaving(true); setErr(null);
+    try {
+      const payload: VehicleTypeApi = {
+        id: row?.id ?? 0,
+        name,
+        description,
+        baseKm: Number(baseKm || 0),
+        baseFare: Number(baseFare || 0),
+        fareForPerKm: Number(fareForPerKm || 0),
+        fileId: fileId === '' ? 0 : Number(fileId),
+      };
 
-    // Demo için resmi local object url ile gösteriyoruz;
-    const imageUrl = preview ?? '/images/placeholder.png';
+      const res = await fetch(`${API_BASE}/api/Vehicle/types`, {
+        method: mode === 'create' ? 'POST' : 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
 
-    onCreate({
-      name,
-      openingKm: Number(openingKm),
-      openingPrice: Number(openingPrice),
-      kmPrice: Number(kmPrice),
-      imageUrl,
-    });
+      const txt = await res.text();
+      const j = txt ? JSON.parse(txt) : null;
+
+      if (!res.ok) {
+        const msg = j?.message || j?.title || `HTTP ${res.status}`;
+        throw new Error(msg);
+      }
+
+      onSaved();
+    } catch (e: any) {
+      setErr(e?.message || 'Kaydedilemedi.');
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4"
-      role="dialog"
-      aria-modal="true"
-    >
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4" role="dialog" aria-modal="true">
       <div className="w-full max-w-3xl rounded-2xl bg-white shadow-xl">
         {/* Header */}
         <div className="flex items-center justify-between border-b px-5 py-4">
-          <h3 className="text-xl font-semibold">Yeni Taşıyıcı Türü Ekle</h3>
-          <button
-            className="rounded-full p-2 hover:bg-neutral-100"
-            onClick={onClose}
-            aria-label="Kapat"
-          >
-            ✕
-          </button>
+          <h3 className="text-xl font-semibold">
+            {mode === 'create' ? 'Yeni Taşıyıcı Türü Ekle' : `Taşıyıcı Türünü Düzenle (ID: ${row?.id})`}
+          </h3>
+          <button className="rounded-full p-2 hover:bg-neutral-100" onClick={onClose} aria-label="Kapat">✕</button>
         </div>
 
         {/* Body */}
         <form onSubmit={submit} className="space-y-4 p-5">
-          <div>
-            <label className="label">Taşıyıcı Türü</label>
-            <select
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 text-neutral-800 outline-none ring-2 ring-transparent transition focus:bg-white focus:border-neutral-300 focus:ring-sky-200"
-            >
-              <option value="">Seçiniz</option>
-              <option value="Kurye">Kurye</option>
-              <option value="Minivan">Minivan</option>
-              <option value="Panelvan">Panelvan</option>
-              <option value="Kamyonet">Kamyonet</option>
-              <option value="Kamyon">Kamyon</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="label">Açılış Km</label>
-            <input
-              className="w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 text-neutral-800 placeholder:text-neutral-400 outline-none ring-2 ring-transparent transition focus:bg-white focus:border-neutral-300 focus:ring-sky-200"
-              type="number"
-              value={openingKm}
-              onChange={(e) => setOpeningKm(e.target.value === '' ? '' : Number(e.target.value))}
-            />
-          </div>
-
-          <div>
-            <label className="label">Açılış Fiyatı</label>
-            <input
-              className="w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 text-neutral-800 placeholder:text-neutral-400 outline-none ring-2 ring-transparent transition focus:bg-white focus:border-neutral-300 focus:ring-sky-200"
-              type="number"
-              value={openingPrice}
-              onChange={(e) => setOpeningPrice(e.target.value === '' ? '' : Number(e.target.value))}
-            />
-          </div>
-
-          <div>
-            <label className="label">Km Fiyat</label>
-            <input
-              className="w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 text-neutral-800 placeholder:text-neutral-400 outline-none ring-2 ring-transparent transition focus:bg-white focus:border-neutral-300 focus:ring-sky-200"
-              type="number"
-              value={kmPrice}
-              onChange={(e) => setKmPrice(e.target.value === '' ? '' : Number(e.target.value))}
-            />
-          </div>
-
-          <div>
-            <label className="label">Resmi Yükle</label>
-            <div className="flex items-center gap-3">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="sm:col-span-2">
+              <label className="label">Ad</label>
               <input
-                type="file"
-                accept="image/*"
-                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-                className="w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 text-neutral-800 outline-none ring-2 ring-transparent transition focus:bg-white focus:border-neutral-300 focus:ring-sky-200 cursor-pointer"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 text-neutral-800 outline-none ring-2 ring-transparent transition focus:bg-white focus:ring-sky-200"
               />
-              {preview && (
-                <img
-                  src={preview}
-                  alt="Önizleme"
-                  className="h-14 w-14 rounded-lg object-cover ring-1 ring-neutral-200"
-                />
-              )}
+            </div>
+
+            <div className="sm:col-span-2">
+              <label className="label">Açıklama</label>
+              <input
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                className="w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 text-neutral-800 outline-none ring-2 ring-transparent transition focus:bg-white focus:ring-sky-200"
+              />
+            </div>
+
+            <div>
+              <label className="label">Açılış Km</label>
+              <input
+                type="number"
+                value={baseKm}
+                onChange={(e) => setBaseKm(e.target.value === '' ? '' : Number(e.target.value))}
+                className="w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 outline-none ring-2 ring-transparent transition focus:bg-white focus:ring-sky-200"
+              />
+            </div>
+
+            <div>
+              <label className="label">Açılış Fiyatı</label>
+              <input
+                type="number"
+                value={baseFare}
+                onChange={(e) => setBaseFare(e.target.value === '' ? '' : Number(e.target.value))}
+                className="w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 outline-none ring-2 ring-transparent transition focus:bg-white focus:ring-sky-200"
+              />
+            </div>
+
+            <div>
+              <label className="label">Km Fiyatı</label>
+              <input
+                type="number"
+                value={fareForPerKm}
+                onChange={(e) => setFareForPerKm(e.target.value === '' ? '' : Number(e.target.value))}
+                className="w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 outline-none ring-2 ring-transparent transition focus:bg-white focus:ring-sky-200"
+              />
+            </div>
+
+            <div>
+              <label className="label">File Id (opsiyonel)</label>
+              <input
+                type="number"
+                value={fileId}
+                onChange={(e) => setFileId(e.target.value === '' ? '' : Number(e.target.value))}
+                className="w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 outline-none ring-2 ring-transparent transition focus:bg-white focus:ring-sky-200"
+              />
+              <p className="mt-1 text-xs text-neutral-500">
+                Görsel upload endpoint’iniz varsa oradan dönen <strong>fileId</strong>’yi girin.
+              </p>
             </div>
           </div>
 
+          {err && <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{err}</div>}
+
           {/* Footer */}
-          <div className="mt-6 flex items-center justify-end gap-3">
+          <div className="mt-4 flex items-center justify-end gap-3">
             <button
               type="button"
-              className="rounded-xl bg-rose-100 px-4 py-2 text-sm font-semibold text-rose-600 hover:bg-rose-200"
+              className="rounded-xl bg-neutral-200 px-4 py-2 text-sm font-semibold text-neutral-800 hover:bg-neutral-300"
               onClick={onClose}
             >
               İptal
             </button>
             <button
               type="submit"
+              disabled={saving || !name}
               className="rounded-xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-emerald-600 disabled:opacity-50"
-              disabled={!name || openingKm === '' || openingPrice === '' || kmPrice === ''}
             >
-              Kaydet
+              {saving ? 'Kaydediliyor…' : (mode === 'create' ? 'Kaydet' : 'Güncelle')}
             </button>
           </div>
         </form>

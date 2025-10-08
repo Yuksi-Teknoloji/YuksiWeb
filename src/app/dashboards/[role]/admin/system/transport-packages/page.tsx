@@ -81,7 +81,7 @@ export default function TransportPackagesPage() {
         <div className="flex items-center justify-between p-5 sm:p-6">
           <button
             onClick={() => setOpen(true)}
-            className="rounded-xl bg-sky-500 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-sky-600 active:translate-y-px"
+            className="btn-accent rounded-2xl bg-orange-500 text-white px-4 py-2 text-sm font-medium shadow-sm transition active:translate-y-px"
           >
             Yeni Paket Ekle
           </button>

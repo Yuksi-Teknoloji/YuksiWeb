@@ -123,7 +123,7 @@ export default function UserListPage() {
           </button>
           <Link
             href="./user-list/edit-profile"
-            className="rounded-xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-600 active:translate-y-px"
+            className="btn-accent rounded-2xl bg-orange-500 text-white px-4 py-2 text-sm font-medium shadow-sm transition active:translate-y-px"
           >
             Yeni Kullanıcı Oluştur
           </Link>

@@ -142,7 +142,7 @@ export default function ContentPageList() {
           <button onClick={load} className="rounded-xl bg-neutral-200 px-4 py-2 text-sm font-medium text-neutral-800 hover:bg-neutral-300">
             Yenile
           </button>
-          <button onClick={() => setOpenCreate(true)} className="rounded-xl bg-sky-500 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-sky-600 active:translate-y-px">
+          <button onClick={() => setOpenCreate(true)} className="btn-accent rounded-2xl bg-orange-500 text-white px-4 py-2 text-sm font-medium shadow-sm transition active:translate-y-px">
             Yeni Ekle
           </button>
         </div>
@@ -238,8 +238,6 @@ function CreateModal({
 }) {
   const [title, setTitle] = React.useState('');
   const [contentType, setContentType] = React.useState<number>(1); // Destek
-  const [showInMenu, setShowInMenu] = React.useState(false);
-  const [showInFooter, setShowInFooter] = React.useState(false);
   const [content, setContent] = React.useState('');
 
   const [saving, setSaving] = React.useState(false);
@@ -253,8 +251,6 @@ function CreateModal({
       const payload = {
         title,
         contentType,
-        showInMenu,
-        showInFooter,
         content,
         isActive: true,
         isDeleted: false,
@@ -343,8 +339,6 @@ function EditModal({
 
   const [title, setTitle] = React.useState(row.raw.title ?? '');
   const [contentType, setContentType] = React.useState<number>(initialTypeNumber);
-  const [showInMenu, setShowInMenu] = React.useState(!!row.raw.showInMenu);
-  const [showInFooter, setShowInFooter] = React.useState(!!row.raw.showInFooter);
   const [content, setContent] = React.useState(row.raw.content ?? '');
   const [saving, setSaving] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
@@ -357,8 +351,6 @@ function EditModal({
         id: Number(row.id),
         title,
         contentType,        // PUT’ta integer
-        showInMenu,
-        showInFooter,
         content,
         isActive: true,
         isDeleted: false,

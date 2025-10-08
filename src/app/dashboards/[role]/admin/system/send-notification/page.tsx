@@ -49,25 +49,11 @@ export default function SendNotificationPage() {
     <div className="space-y-4">
       {/* Sayfa başlığı */}
       <div className="px-2 sm:px-0">
-        <h1 className="text-2xl font-semibold tracking-tight">Email</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Bildirim Gönder</h1>
       </div>
 
       {/* Kart */}
       <section className="rounded-2xl border border-neutral-200/70 bg-white shadow-sm soft-card">
-        {/* Üst bar (buton sağda, mor) */}
-        <div className="flex items-center justify-end gap-3 p-5 sm:p-6">
-          <button
-            onClick={onSubmit as any}
-            disabled={sending}
-            className="inline-flex w-full sm:w-auto items-center justify-center gap-2 rounded-xl bg-indigo-500 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-600 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            <span className="inline-block">📨</span>
-            {sending ? 'Gönderiliyor…' : 'Gönder'}
-          </button>
-        </div>
-
-        <div className="h-px w-full bg-neutral-200/70" />
-
         {/* Form */}
         <form onSubmit={onSubmit} className="space-y-5 p-5 sm:p-6">
           {/* Kullanıcı Tipi */}
@@ -76,7 +62,7 @@ export default function SendNotificationPage() {
             <select
               value={form.audience}
               onChange={(e) => onChange('audience', e.target.value)}
-              className="w-full rounded-xl border border-neutral-300 px-3 py-2 text-sm outline-none ring-2 ring-transparent transition focus:border-neutral-300 focus:ring-sky-200"
+              className="w-full bg-white rounded-xl border border-neutral-300 px-3 py-2 text-sm outline-none ring-2 ring-transparent transition focus:border-neutral-300 focus:ring-sky-200"
             >
               {AUDIENCE.map(opt => (
                 <option key={opt} value={opt}>
@@ -92,7 +78,7 @@ export default function SendNotificationPage() {
             <input
               value={form.title}
               onChange={(e) => onChange('title', e.target.value)}
-              className="w-full rounded-xl border border-neutral-300 px-3 py-2 outline-none ring-2 ring-transparent transition focus:border-neutral-300 focus:ring-sky-200"
+              className="w-full bg-white rounded-xl border border-neutral-300 px-3 py-2 outline-none ring-2 ring-transparent transition focus:border-neutral-300 focus:ring-sky-200"
             />
           </div>
 
@@ -126,7 +112,7 @@ export default function SendNotificationPage() {
               value={form.content}
               onChange={(e) => onChange('content', e.target.value)}
               rows={8}
-              className="w-full resize-y rounded-b-xl border border-neutral-300 px-3 py-2 outline-none ring-2 ring-transparent transition focus:border-neutral-300 focus:ring-sky-200"
+              className="w-full bg-white resize-y rounded-b-xl border border-neutral-300 px-3 py-2 outline-none ring-2 ring-transparent transition focus:border-neutral-300 focus:ring-sky-200"
             />
           </div>
 

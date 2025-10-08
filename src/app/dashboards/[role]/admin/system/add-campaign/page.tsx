@@ -81,8 +81,8 @@ export default function AddCampaignPage() {
             <input
               value={form.title}
               onChange={(e) => onChange('title', e.target.value)}
-              placeholder="Post Title"
-              className="w-full rounded-xl border border-neutral-300 px-3 py-2 outline-none ring-2 ring-transparent transition focus:border-neutral-300 focus:ring-sky-200"
+              placeholder="Başlık Ekle"
+              className="w-full bg-white rounded-xl border border-neutral-300 px-3 py-2 outline-none ring-2 ring-transparent transition focus:border-neutral-300 focus:ring-sky-200"
             />
           </div>
 
@@ -93,7 +93,7 @@ export default function AddCampaignPage() {
               value={form.discount}
               onChange={(e) => onChange('discount', e.target.value)}
               placeholder="Örn: %10 veya 10"
-              className="w-full rounded-xl border border-neutral-300 px-3 py-2 outline-none ring-2 ring-transparent transition focus:border-neutral-300 focus:ring-sky-200"
+              className="w-full bg-white rounded-xl border border-neutral-300 px-3 py-2 outline-none ring-2 ring-transparent transition focus:border-neutral-300 focus:ring-sky-200"
             />
           </div>
 
@@ -104,7 +104,7 @@ export default function AddCampaignPage() {
               value={form.rule}
               onChange={(e) => onChange('rule', e.target.value)}
               placeholder="Örn: 100₺ üzeri alışverişlerde"
-              className="w-full rounded-xl border border-neutral-300 px-3 py-2 outline-none ring-2 ring-transparent transition focus:border-neutral-300 focus:ring-sky-200"
+              className="w-full bg-white rounded-xl border border-neutral-300 px-3 py-2 outline-none ring-2 ring-transparent transition focus:border-neutral-300 focus:ring-sky-200"
             />
           </div>
 
@@ -133,7 +133,7 @@ export default function AddCampaignPage() {
               value={form.content}
               onChange={(e) => onChange('content', e.target.value)}
               rows={6}
-              className="w-full resize-y rounded-b-xl border border-neutral-300 px-3 py-2 outline-none ring-2 ring-transparent transition focus:border-neutral-300 focus:ring-sky-200"
+              className="w-full bg-white resize-y rounded-b-xl border border-neutral-300 px-3 py-2 outline-none ring-2 ring-transparent transition focus:border-neutral-300 focus:ring-sky-200"
             />
           </div>
 
@@ -145,7 +145,7 @@ export default function AddCampaignPage() {
                 type="file"
                 accept="image/*"
                 onChange={onFile}
-                className="block w-full rounded-xl border border-neutral-300 px-3 py-2 file:mr-3 file:rounded-lg file:border-0 file:bg-neutral-100 file:px-3 file:py-2 file:text-sm file:font-medium"
+                className="block w-full bg-white rounded-xl border border-neutral-300 px-3 py-2 file:mr-3 file:rounded-lg file:border-0 file:bg-neutral-100 file:px-3 file:py-2 file:text-sm file:font-medium"
               />
             </div>
             {preview && (
