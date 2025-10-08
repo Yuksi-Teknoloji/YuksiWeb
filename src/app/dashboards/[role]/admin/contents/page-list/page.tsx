@@ -2,6 +2,7 @@
 'use client';
 
 import * as React from 'react';
+import MiniRTE from '@/components/subsect/MiniRTE';
 
 /* ---------- API tipleri ---------- */
 type ApiSubSection = {
@@ -306,22 +307,8 @@ function CreateModal({
             </select>
           </div>
 
-          <div className="space-y-3">
-            <label className="flex items-center gap-3">
-              <input type="checkbox" checked={showInMenu} onChange={(e) => setShowInMenu(e.target.checked)} className="h-5 w-5 rounded border-neutral-300" />
-              <span>Menü'de Göster</span>
-            </label>
-            <label className="flex items-center gap-3">
-              <input type="checkbox" checked={showInFooter} onChange={(e) => setShowInFooter(e.target.checked)} className="h-5 w-5 rounded border-neutral-300" />
-              <span>Footer'da Göster</span>
-            </label>
-          </div>
-
           <div className="rounded-xl border border-neutral-300">
-            <div className="flex items-center gap-3 border-b px-3 py-2 text-sm text-neutral-500">
-              <span>Paragraph</span><span className="mx-1">•</span><span>B</span><span>I</span><span>• • •</span>
-            </div>
-            <textarea rows={10} value={content} onChange={(e) => setContent(e.target.value)} className="h-[280px] w-full resize-y rounded-b-xl px-3 py-2 outline-none" />
+            <MiniRTE value={content} onChange={setContent} height={280} />
           </div>
 
           {err && <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{err}</div>}
@@ -417,23 +404,10 @@ function EditModal({
               </select>
             </div>
             <br />
-
-            <label className="flex items-center gap-3">
-              <input type="checkbox" checked={showInMenu} onChange={(e) => setShowInMenu(e.target.checked)} className="h-5 w-5 rounded border-neutral-300" />
-              <span>Menü'de Göster</span>
-            </label>
-
-            <label className="flex items-center gap-3">
-              <input type="checkbox" checked={showInFooter} onChange={(e) => setShowInFooter(e.target.checked)} className="h-5 w-5 rounded border-neutral-300" />
-              <span>Footer'da Göster</span>
-            </label>
           </div>
 
           <div className="rounded-xl border border-neutral-300">
-            <div className="flex items-center gap-3 border-b px-3 py-2 text-sm text-neutral-500">
-              <span>Paragraph</span><span className="mx-1">•</span><span>B</span><span>I</span><span>• • •</span>
-            </div>
-            <textarea rows={10} value={content} onChange={(e) => setContent(e.target.value)} className="h-[280px] w-full resize-y rounded-b-xl px-3 py-2 outline-none" />
+            <MiniRTE value={content} onChange={setContent} height={280} />
           </div>
 
           {err && <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{err}</div>}

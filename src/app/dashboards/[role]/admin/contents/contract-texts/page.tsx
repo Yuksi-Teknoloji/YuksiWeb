@@ -225,29 +225,6 @@ function CreateModal({
             </select>
           </div>
 
-          {/* Toggle'lar */}
-          <div className="space-y-3">
-            <label className="flex items-center gap-3">
-              <input
-                type="checkbox"
-                checked={showInMenu}
-                onChange={(e) => setShowInMenu(e.target.checked)}
-                className="h-5 w-5 rounded border-neutral-300"
-              />
-              <span>Menü'de Göster</span>
-            </label>
-
-            <label className="flex items-center gap-3">
-              <input
-                type="checkbox"
-                checked={showInFooter}
-                onChange={(e) => setShowInFooter(e.target.checked)}
-                className="h-5 w-5 rounded border-neutral-300"
-              />
-              <span>Footer'da Göster</span>
-            </label>
-          </div>
-
           {/* Editör benzetimi */}
           <div className="rounded-xl border border-neutral-300">
             <div className="flex items-center gap-3 border-b px-3 py-2 text-sm text-neutral-500">
