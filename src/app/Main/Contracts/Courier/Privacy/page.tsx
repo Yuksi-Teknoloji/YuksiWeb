@@ -1,13 +1,12 @@
 //src/app/About/page.tsx
 
-
 import Link from "next/link";
-import Navbar from "../../..//../components/UI/Navbar"; 
+import Navbar from "@/components/UI/Navbar"; 
 import Footer from "@/components/UI/Footer";
 import AboutSection from "@/components/UI/AboutSection";
-import UserContentPage from "./Content/page";
+import CarrierPrivacyContentPage from "./Content/page";
 
-export default function PrivacyPage() {
+export default function CarrierPrivacyPage() {
   return (
     <div className="bg-white min-h-screen overflow-x-hidden">
       {/* Navbar */}
@@ -27,14 +26,14 @@ export default function PrivacyPage() {
                 </Link>
               </li>
               <li className="text-gray-500">/</li>
-              <li className="text-gray-700">Kullanıcı Sözleşmesi</li>
+              <li className="text-gray-700">Kurye Gizliliik Sözleşmesi</li>
             </ul>
           </div>
         </div>
       </div>
       
-      {/* About */}
-      <UserContentPage />
+      {/* Carrier */}
+      <CarrierPrivacyContentPage />
 
       {/* About */}
       <AboutSection />

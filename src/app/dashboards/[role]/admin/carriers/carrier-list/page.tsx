@@ -4,8 +4,7 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-
-const API_BASE = (process.env.NEXT_PUBLIC_API_BASE || 'http://40.90.226.14:8080').replace(/\/+$/, '');
+import { API_BASE } from '@/configs/api'; 
 
 type DocsStatus =
   | ''

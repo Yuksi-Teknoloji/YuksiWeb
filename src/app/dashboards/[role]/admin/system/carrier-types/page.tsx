@@ -3,8 +3,7 @@
 
 import * as React from 'react';
 import { useParams } from 'next/navigation';
-
-const API_BASE = (process.env.NEXT_PUBLIC_API_BASE || 'http://40.90.226.14:8080').replace(/\/+$/, '');
+import { API_BASE } from '@/configs/api'; 
 
 type VehicleTypeApi = {
   id: number;
@@ -16,6 +15,9 @@ type VehicleTypeApi = {
   fileId?: number;
   filePath?: string;
   fileName?: string;
+  // backend’den geliyorsa filtre için:
+  isActive?: boolean;
+  isDeleted?: boolean;
 };
 
 type Row = {
@@ -60,7 +62,11 @@ export default function CarrierTypesPage() {
       }
 
       const list: VehicleTypeApi[] = Array.isArray(j?.data) ? j.data : (Array.isArray(j) ? j : []);
-      const mapped: Row[] = list.map(v => ({
+
+      // 🔎 SADECE aktif ve silinmemiş kayıtlar
+      const filtered = list.filter(v => v.isActive === true && v.isDeleted === false);
+
+      const mapped: Row[] = filtered.map(v => ({
         id: v.id,
         name: v.name,
         description: v.description,
@@ -126,7 +132,7 @@ export default function CarrierTypesPage() {
               <th className="px-3 py-2 font-medium">Taşıyıcı Türü</th>
               <th className="px-3 py-2 font-medium">Açıklama</th>
               <th className="px-3 py-2 font-medium">Açılış Km</th>
-              <th className="px-3 py-2font-medium">Açılış Fiyatı</th>
+              <th className="px-3 py-2 font-medium">Açılış Fiyatı</th>
               <th className="px-3 py-2 font-medium">Km Fiyatı</th>
               <th className="px-3 py-2" />
             </tr>

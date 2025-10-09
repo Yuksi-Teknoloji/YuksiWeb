@@ -4,6 +4,7 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
+import { API_BASE } from '@/configs/api';
 
 type Restaurant = {
   id: number | string;
@@ -15,83 +16,104 @@ type Restaurant = {
   fullAddress: string | null;
 };
 
-const API_BASE = (process.env.NEXT_PUBLIC_API_BASE || 'http://40.90.226.14:8080').replace(/\/+$/, '');
-const LIST_ENDPOINT = `${API_BASE}/api/Restaurant/list`;
+type ListResponse = {
+  isSuccessful: boolean;
+  data: {
+    items: Restaurant[];
+    totalCount: number;
+    pageNumber: number;
+    pageSize: number;
+    totalPages: number;
+  };
+  message?: string | null;
+  errors?: unknown;
+  hasData?: boolean;
+};
+
+const PAGE_SIZE = 10;
 
 export default function RestaurantListPage() {
   const { role } = useParams<{ role: string }>();
 
-  const [rows, setRows]   = React.useState<Restaurant[]>([]);
-  const [query, setQuery] = React.useState('');
+  const [rows, setRows] = React.useState<Restaurant[]>([]);
   const [loading, setLoading] = React.useState(false);
-  const [error, setError]     = React.useState<string | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
 
+  const [query, setQuery] = React.useState('');
   const [page, setPage] = React.useState(1);
-  const pageSize = 10;
+  const [totalPages, setTotalPages] = React.useState(1);
+  const [totalCount, setTotalCount] = React.useState(0);
 
-  React.useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      setLoading(true);
-      setError(null);
-      try {
-        const res  = await fetch(LIST_ENDPOINT, { cache: 'no-store' });
-        const text = await res.text();
-        const data = text ? JSON.parse(text) : null;
+  const load = React.useCallback(async (pageNumber: number) => {
+    setLoading(true);
+    setError(null);
+    try {
+      // (Opsiyonel) auth gerekiyorsa token ekle
+      const token =
+        typeof window !== 'undefined'
+          ? window.localStorage.getItem('yuksi_token')
+          : null;
 
-        if (!res.ok) {
-          const msg =
-            data?.title || data?.message || data?.detail || `HTTP ${res.status}`;
-          throw new Error(msg);
-        }
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
 
-        // Swagger ekranındaki gerçek yapı:
-        // { status, message, data: { isSuccessful, data: [ ...list ] } }
-        const listRaw =
-          Array.isArray(data?.data?.data)
-            ? data.data.data
-            : Array.isArray(data?.data)
-              ? data.data
-              : Array.isArray(data) ? data : [];
+      const url = new URL(`${API_BASE}/api/Restaurant/list`);
+      url.searchParams.set('pageNumber', String(pageNumber));
+      url.searchParams.set('pageSize', String(PAGE_SIZE));
 
-        const mapped: Restaurant[] = listRaw.map((r: any, i: number) => ({
-          id: r?.id ?? i + 1,
-          email: r?.email ?? '',
-          name: r?.name ?? '',
-          contactPerson: r?.contactPerson ?? null,
-          taxNumber: r?.taxNumber ?? null,
-          phone: r?.phone ?? null,
-          fullAddress: r?.fullAddress ?? null,
-        }));
+      const res = await fetch(url.toString(), { cache: 'no-store', headers });
+      const txt = await res.text();
+      const json: ListResponse | any = txt ? JSON.parse(txt) : null;
 
-        if (!cancelled) {
-          setRows(mapped);
-          setPage(1);
-        }
-      } catch (e: any) {
-        if (!cancelled) setError(e?.message || 'Restoran listesi alınamadı.');
-      } finally {
-        if (!cancelled) setLoading(false);
+      if (!res.ok) {
+        const msg =
+          (json && (json.message || json.title || json.detail)) ||
+          `HTTP ${res.status}`;
+        throw new Error(msg);
       }
-    })();
-    return () => { cancelled = true; };
+
+      // Beklenen yapı: { isSuccessful, data: { items, totalCount, pageNumber, pageSize, totalPages }, ... }
+      const payload = json?.data;
+      const items: any[] = Array.isArray(payload?.items) ? payload.items : [];
+
+      const mapped: Restaurant[] = items.map((r, i) => ({
+        id: r?.id ?? i + 1,
+        email: r?.email ?? '',
+        name: r?.name ?? '',
+        contactPerson: r?.contactPerson ?? null,
+        taxNumber: r?.taxNumber ?? null,
+        phone: r?.phone ?? null,
+        fullAddress: r?.fullAddress ?? null,
+      }));
+
+      setRows(mapped);
+      setPage(payload?.pageNumber ?? pageNumber);
+      setTotalPages(payload?.totalPages ?? 1);
+      setTotalCount(payload?.totalCount ?? mapped.length);
+    } catch (e: any) {
+      setError(e?.message || 'Restoran listesi alınamadı.');
+      setRows([]);
+      setTotalPages(1);
+      setTotalCount(0);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
+  React.useEffect(() => {
+    load(1);
+  }, [load]);
+
+  // İstemci tarafı arama (sunucu pageli liste üzerinde filtre)
   const filtered = React.useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return rows;
     return rows.filter((r) =>
       [r.name, r.contactPerson, r.email, r.phone, r.taxNumber, r.fullAddress]
         .filter(Boolean)
-        .some((v) => String(v).toLowerCase().includes(q))
+        .some((v) => String(v).toLowerCase().includes(q)),
     );
   }, [rows, query]);
-
-  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
-  const pageRows = React.useMemo(() => {
-    const start = (page - 1) * pageSize;
-    return filtered.slice(start, start + pageSize);
-  }, [filtered, page]);
 
   const createHref = `/dashboards/${role}/admin/restaurants/create-restaurant`;
 
@@ -101,7 +123,7 @@ export default function RestaurantListPage() {
         <h1 className="text-2xl font-semibold tracking-tight">Restoran Listesi</h1>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => location.reload()}
+            onClick={() => load(page)}
             className="rounded-xl bg-neutral-200 px-4 py-2 text-sm font-semibold text-neutral-800 hover:bg-neutral-300"
           >
             Yenile
@@ -120,12 +142,13 @@ export default function RestaurantListPage() {
           <div className="space-y-2">
             <input
               value={query}
-              onChange={(e) => { setQuery(e.target.value); setPage(1); }}
+              onChange={(e) => setQuery(e.target.value)}
               placeholder="İsim, yetkili, e-posta, telefon, vergi no, adres…"
               className="w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 text-neutral-800 outline-none ring-2 ring-transparent transition placeholder:text-neutral-400 focus:bg-white focus:ring-sky-200"
             />
             <p className="text-sm text-neutral-500">
-              Toplam {filtered.length} kayıt{query ? ` (filtre: “${query}”)` : ''}
+              Toplam {totalCount} kayıt • Bu sayfada {rows.length} kayıt
+              {query ? ` (filtre: “${query}”)` : ''}
             </p>
           </div>
         </div>
@@ -145,51 +168,71 @@ export default function RestaurantListPage() {
             <tbody>
               {loading && (
                 <tr>
-                  <td colSpan={6} className="px-6 py-8 text-center text-neutral-500">Yükleniyor…</td>
+                  <td colSpan={6} className="px-6 py-8 text-center text-neutral-500">
+                    Yükleniyor…
+                  </td>
                 </tr>
               )}
 
               {!loading && error && (
                 <tr>
-                  <td colSpan={6} className="px-6 py-8 text-center text-rose-600">{error}</td>
+                  <td colSpan={6} className="px-6 py-8 whitespace-pre-wrap text-center text-rose-600">
+                    {error}
+                  </td>
                 </tr>
               )}
 
-              {!loading && !error && pageRows.map((r) => (
-                <tr key={r.id} className="border-t border-neutral-200/70 align-top hover:bg-neutral-50">
-                  <td className="px-6 py-4"><div className="font-semibold text-neutral-900">{r.name || '-'}</div></td>
-                  <td className="px-6 py-4"><div className="text-neutral-900">{r.contactPerson || '-'}</div></td>
-                  <td className="px-6 py-4"><div className="text-neutral-900">{r.email || '-'}</div></td>
-                  <td className="px-6 py-4"><div className="text-neutral-900">{r.phone || '-'}</div></td>
-                  <td className="px-6 py-4"><div className="text-neutral-900">{r.taxNumber || '-'}</div></td>
-                  <td className="px-6 py-4"><div className="max-w-[520px] text-neutral-900">{r.fullAddress || '-'}</div></td>
-                </tr>
-              ))}
+              {!loading &&
+                !error &&
+                filtered.map((r) => (
+                  <tr key={r.id} className="border-t border-neutral-200/70 align-top hover:bg-neutral-50">
+                    <td className="px-6 py-4">
+                      <div className="font-semibold text-neutral-900">{r.name || '-'}</div>
+                    </td>
+                    <td className="px-6 py-4"><div className="text-neutral-900">{r.contactPerson || '-'}</div></td>
+                    <td className="px-6 py-4"><div className="text-neutral-900">{r.email || '-'}</div></td>
+                    <td className="px-6 py-4"><div className="text-neutral-900">{r.phone || '-'}</div></td>
+                    <td className="px-6 py-4"><div className="text-neutral-900">{r.taxNumber || '-'}</div></td>
+                    <td className="px-6 py-4"><div className="max-w-[520px] text-neutral-900">{r.fullAddress || '-'}</div></td>
+                  </tr>
+                ))}
 
-              {!loading && !error && pageRows.length === 0 && (
+              {!loading && !error && filtered.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-6 py-12 text-center text-sm text-neutral-500">Kayıt bulunamadı.</td>
+                  <td colSpan={6} className="px-6 py-12 text-center text-sm text-neutral-500">
+                    Kayıt bulunamadı.
+                  </td>
                 </tr>
               )}
             </tbody>
           </table>
         </div>
 
-        {/* Sayfalama */}
+        {/* Sunucu sayfalama */}
         {!loading && !error && totalPages > 1 && (
           <div className="flex items-center justify-between px-6 py-4 text-sm text-neutral-600">
-            <span>Sayfa {page} / {totalPages}</span>
+            <span>
+              Sayfa {page} / {totalPages}
+            </span>
             <div className="flex items-center gap-2">
               <button
                 disabled={page <= 1}
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                onClick={() => {
+                  const next = Math.max(1, page - 1);
+                  setPage(next);
+                  load(next);
+                }}
                 className="rounded-lg border px-3 py-1.5 disabled:opacity-40"
               >
                 ‹ Önceki
               </button>
               <button
                 disabled={page >= totalPages}
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                onClick={() => {
+                  const next = Math.min(totalPages, page + 1);
+                  setPage(next);
+                  load(next);
+                }}
                 className="rounded-lg border px-3 py-1.5 disabled:opacity-40"
               >
                 Sonraki ›

@@ -4,6 +4,7 @@
 import * as React from "react";
 import { Trash2 } from "lucide-react";
 import "@/styles/admin-settings.css";
+import { API_BASE } from '@/configs/api'; 
 
 type BannerApiItem = {
   id?: number | string;
@@ -40,7 +41,6 @@ type GeneralSettingsDto = {
   logoPath: string;
 };
 
-const API_BASE = (process.env.NEXT_PUBLIC_API_BASE || "http://40.90.226.14:8080").replace(/\/+$/, "");
 
 // ---- helpers
 async function readProblem(res: Response) {

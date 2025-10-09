@@ -35,7 +35,7 @@ export default function Footer() {
               </li>
               <li>
                 <a
-                  href="http://localhost:3000/Main/Contracts/Courier"
+                  href="http://localhost:3000/Main/Contracts/Courier/Privacy"
                   rel="noopener noreferrer"
                   className="hover:underline"
                 >

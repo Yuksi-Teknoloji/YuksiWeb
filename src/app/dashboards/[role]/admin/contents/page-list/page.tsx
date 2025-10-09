@@ -3,6 +3,7 @@
 
 import * as React from 'react';
 import MiniRTE from '@/components/subsect/MiniRTE';
+import { API_BASE } from '@/configs/api';
 
 /* ---------- API tipleri ---------- */
 type ApiSubSection = {
@@ -31,6 +32,8 @@ const CONTENT_TYPES: { value: number; label: string }[] = [
   { value: 3, label: 'Iletisim' },
   { value: 4, label: 'GizlilikPolitikasi' },
   { value: 5, label: 'KullanimKosullari' },
+  { value: 6, label: 'KuryeGizlilikSözlesmesi' },
+  { value: 7, label: 'KuryeTasiyiciSözlesmesi' },
 ];
 
 const enumToLabel = (v: number) =>
@@ -40,9 +43,6 @@ const labelToEnum = (lbl: string) =>
   CONTENT_TYPES.find(
     x => x.label.toLowerCase() === String(lbl).trim().toLowerCase()
   )?.value ?? 1;
-
-/* ---------- API BASE ---------- */
-const API_BASE = (process.env.NEXT_PUBLIC_API_BASE || 'http://40.90.226.14:8080').replace(/\/+$/, '');
 
 export default function ContentPageList() {
   const [rows, setRows] = React.useState<ContentRow[]>([]);
@@ -88,45 +88,44 @@ export default function ContentPageList() {
   React.useEffect(() => { load(); }, [load]);
 
   /* -------- SOFT DELETE (Delete /api/SubSection/{Id}) -------- */
-
   function toNumericId(rowOrId: { id?: any } | string | number): number | null {
-  const raw = typeof rowOrId === 'object' && rowOrId !== null ? (rowOrId as any).id : rowOrId;
-  const n = Number(String(raw).trim());
-  return Number.isFinite(n) ? n : null; }
+    const raw = typeof rowOrId === 'object' && rowOrId !== null ? (rowOrId as any).id : rowOrId;
+    const n = Number(String(raw).trim());
+    return Number.isFinite(n) ? n : null;
+  }
 
   async function readProblem(res: Response): Promise<any> {
-  const txt = await res.text();
-  try { return txt ? JSON.parse(txt) : null; } catch { return txt || null; }
-}
+    const txt = await res.text();
+    try { return txt ? JSON.parse(txt) : null; } catch { return txt || null; }
+  }
 
   async function handleDelete(idOrStr: string | number) {
-  setGlobalErr(null);
-  setOkMsg(null);
-  try {
-    const r = rows.find(x => String(x.id) === String(idOrStr));
-    const subId = toNumericId(r ?? idOrStr);
-    if (subId == null) throw new Error('Bu kayıt için sayısal Id bulunamadı.');
+    setGlobalErr(null);
+    setOkMsg(null);
+    try {
+      const r = rows.find(x => String(x.id) === String(idOrStr));
+      const subId = toNumericId(r ?? idOrStr);
+      if (subId == null) throw new Error('Bu kayıt için sayısal Id bulunamadı.');
 
-    if (!confirm('Silmek istediğine emin misin?')) return;
+      if (!confirm('Silmek istediğine emin misin?')) return;
 
-    const res = await fetch(`${API_BASE}/api/SubSection/${subId}`, { method: 'DELETE' });
-    if (!res.ok) {
-      const prob = await readProblem(res);
-      const msg = typeof prob === 'string' ? prob : (prob?.title || prob?.message || `HTTP ${res.status}`);
-      throw new Error(`Silinemedi: ${msg}`);
+      const res = await fetch(`${API_BASE}/api/SubSection/${subId}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const prob = await readProblem(res);
+        const msg = typeof prob === 'string' ? prob : (prob?.title || prob?.message || `HTTP ${res.status}`);
+        throw new Error(`Silinemedi: ${msg}`);
+      }
+
+      // UI’dan anında çıkar (optimistic)
+      setRows(prev => prev.filter(x => toNumericId(x) !== subId));
+
+      await load();
+
+      setOkMsg('Kayıt silindi.');
+    } catch (e: any) {
+      setGlobalErr(e?.message || 'Silme işlemi başarısız.');
     }
-
-    // UI’dan anında çıkar (optimistic)
-    setRows(prev => prev.filter(x => toNumericId(x) !== subId));
-
-
-    await load();
-
-    setOkMsg('Kayıt silindi.');
-  } catch (e: any) {
-    setGlobalErr(e?.message || 'Silme işlemi başarısız.');
   }
-}
 
   /* -------- EDIT open -------- */
   const openEdit = (id: string) => {

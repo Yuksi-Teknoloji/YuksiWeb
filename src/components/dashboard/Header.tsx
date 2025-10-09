@@ -2,8 +2,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { API_BASE } from '@/configs/api'; 
 
-const API_BASE = (process.env.NEXT_PUBLIC_API_BASE || "http://40.90.226.14:8080").replace(/\/+$/, "");
 
 export default function Header({
   title,

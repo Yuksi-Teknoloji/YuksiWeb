@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-const API_BASE = (process.env.API_BASE || "http://40.90.226.14:8080").replace(/\/+$/, "");
+import { API_BASE } from '@/configs/api'; 
+
 
 export async function POST(req: Request) {
   const body = await req.json();

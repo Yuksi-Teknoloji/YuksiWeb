@@ -1,4 +1,6 @@
 // src/lib/subsection.ts
+import { API_BASE } from '@/configs/api';
+
 export type ApiSubSection = {
   id: number;
   title: string;
@@ -16,6 +18,8 @@ export const CONTENT_TYPES = [
   { value: 3, label: 'Iletisim' },
   { value: 4, label: 'GizlilikPolitikasi' },
   { value: 5, label: 'KullanimKosullari' },
+  { value: 6, label: 'KuryeGizlilikSözlesmesi' },
+  { value: 7, label: 'KuryeTasiyiciSözlesmesi' },
 ] as const;
 
 export function enumToLabel(v: number) {
@@ -29,11 +33,6 @@ export function labelToEnum(lbl: string) {
     )?.value ?? 1
   );
 }
-
-const API_BASE = (process.env.NEXT_PUBLIC_API_BASE || 'http://40.90.226.14:8080').replace(
-  /\/+$/,
-  ''
-);
 
 /**
  * Tek bir alt bölüm döndürür.

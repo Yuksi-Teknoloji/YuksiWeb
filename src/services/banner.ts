@@ -1,4 +1,6 @@
 //src/services/banner.ts
+import { API_BASE } from '@/configs/api'; 
+
 export type BannerPayload = {
   id?: number;
   title: string;
@@ -44,8 +46,6 @@ export async function deleteBanner(id: number | string) {
   if (!r.ok) throw new Error(data?.message || "Silme hatası");
   return data;
 }
-
-const API_BASE = (process.env.NEXT_PUBLIC_API_BASE || "http://40.90.226.14:8080").replace(/\/+$/,"");
 
 export type BannerItem = {
   id: number;

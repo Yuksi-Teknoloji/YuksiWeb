@@ -4,6 +4,7 @@
 import * as React from 'react';
 import Link from 'next/link';
 import Modal from '@/components/UI/Modal';
+import { API_BASE } from '@/configs/api'; 
 
 type ApiUser = {
   userId: number | string;
@@ -23,7 +24,6 @@ type UserRow = {
   status?: string;
 };
 
-const API_BASE = (process.env.NEXT_PUBLIC_API_BASE || 'http://40.90.226.14:8080').replace(/\/+$/, '');
 const USERS_ENDPOINT = `${API_BASE}/api/Users/get-all-users`;
 
 export default function UserListPage() {

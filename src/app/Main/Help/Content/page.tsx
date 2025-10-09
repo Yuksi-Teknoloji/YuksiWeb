@@ -2,6 +2,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { API_BASE } from '@/configs/api'; 
 
 type ApiSubSection = {
   id: number;
@@ -16,7 +17,6 @@ type ApiSubSection = {
 
 type Faq = { question: string; answer: string };
 
-const API_BASE = (process.env.NEXT_PUBLIC_API_BASE || 'http://40.90.226.14:8080').replace(/\/+$/, '');
 const DESTEK_TYPE = 'Destek';
 
 // GET’te contentType string gelebilir —> normalize et

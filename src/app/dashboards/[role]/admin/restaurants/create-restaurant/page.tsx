@@ -2,12 +2,13 @@
 "use client";
 
 import * as React from "react";
+import { API_BASE } from '@/configs/api'; 
 
 type Country = { id: number; name: string; code?: string; phoneCode?: string };
 type City    = { id: number; name: string };
 type District= { id: number; name: string };
 
-const API_BASE = "http://40.90.226.14:8080";
+
 
 export default function RestaurantCreatePage() {
   const [saving, setSaving] = React.useState(false);

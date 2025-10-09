@@ -5,6 +5,7 @@ import React, { useState } from 'react';
 import Navbar from '@/components/UI/Navbar';
 import Link from 'next/link';
 import Footer from '@/components/UI/Footer';
+import { API_BASE } from '@/configs/api'; 
 
 type ContactPayload = {
   fullName: string;
@@ -14,7 +15,6 @@ type ContactPayload = {
   message: string;
 };
 
-const API_BASE = (process.env.NEXT_PUBLIC_API_BASE || 'http://40.90.226.14:8080').replace(/\/+$/, '');
 
 export default function CommunicationPage() {
   const [formData, setFormData] = useState({
