@@ -2,40 +2,79 @@
 'use client';
 
 import * as React from 'react';
+import { API_BASE } from '@/configs/api';
 
-type LoadType = {
-  id: string;
-  name: string;        // Çeşit Adı
-  extraPrice: number;  // Ekstra Fiyat
+type ApiCargoType = {
+  id: number;
+  name: string;
+  price: number;
+  description: string;
 };
 
-const initialRows: LoadType[] = [
-  { id: 'lt-1', name: 'Sıvı',       extraPrice: 0 },
-  { id: 'lt-2', name: 'Paletli',    extraPrice: 3 },
-  { id: 'lt-3', name: 'Sert Cisim', extraPrice: 5 },
-];
+type Row = {
+  id: number;
+  name: string;        // Çeşit Adı
+  extraPrice: number;  // price
+  description: string;
+};
 
 export default function LoadTypesPage() {
-  const [rows, setRows] = React.useState<LoadType[]>(initialRows);
-  const [open, setOpen] = React.useState(false);
+  const [rows, setRows] = React.useState<Row[]>([]);
+  const [loading, setLoading] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
-  function handleCreate(item: Omit<LoadType, 'id'>) {
-    setRows(prev => [{ id: crypto.randomUUID(), ...item }, ...prev]);
-    setOpen(false);
+  const [open, setOpen] = React.useState<false | { mode: 'create' } | { mode: 'edit'; row: Row }>(false);
+
+  const load = React.useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/CargoType`, { cache: 'no-store' });
+      const txt = await res.text();
+      const json = txt ? JSON.parse(txt) : null;
+
+      if (!res.ok) throw new Error(json?.message || json?.title || `HTTP ${res.status}`);
+
+      const list: ApiCargoType[] = Array.isArray(json?.data)
+        ? json.data
+        : Array.isArray(json) ? json : [];
+
+      const mapped: Row[] = list.map((it) => ({
+        id: Number(it.id),
+        name: it.name ?? '-',
+        extraPrice: Number(it.price) || 0,
+        description: it.description ?? '',
+      }));
+
+      setRows(mapped);
+    } catch (e: any) {
+      setError(e?.message || 'Yük tipleri alınamadı.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  React.useEffect(() => { load(); }, [load]);
+
+  async function handleDelete(id: number) {
+    if (!confirm('Bu yük tipini silmek istiyor musun?')) return;
+
+    const prev = rows;
+    setRows((p) => p.filter((r) => r.id !== id)); // optimistic
+
+    try {
+      const res = await fetch(`${API_BASE}/api/CargoType/${id}`, { method: 'DELETE' });
+      if (!res.ok) {
+        setRows(prev);
+        const t = await res.text();
+        let msg = 'Silinemedi.';
+        try { msg = (t && JSON.parse(t)?.message) || msg; } catch {}
+        throw new Error(msg);
+      }
+    } catch (e: any) {
+      alert(e?.message || 'Silinemedi.');
+    }
   }
-
-  const handleDelete = (id: string) => {
-    setRows(prev => prev.filter(r => r.id !== id));
-  };
-
-  const handleEdit = (id: string) => {
-    const target = rows.find(r => r.id === id);
-    if (!target) return;
-    const newName = prompt('Çeşit Adı', target.name) ?? target.name;
-    const newPriceStr = prompt('Ekstra Fiyat', String(target.extraPrice)) ?? String(target.extraPrice);
-    const newPrice = Number(newPriceStr) || 0;
-    setRows(prev => prev.map(r => (r.id === id ? { ...r, name: newName, extraPrice: newPrice } : r)));
-  };
 
   return (
     <div className="space-y-4">
@@ -46,56 +85,76 @@ export default function LoadTypesPage() {
       <section className="rounded-2xl border border-neutral-200/70 bg-white shadow-sm">
         <div className="flex items-center justify-between p-5 sm:p-6">
           <button
-            onClick={() => setOpen(true)}
+            onClick={() => setOpen({ mode: 'create' })}
             className="btn-accent rounded-2xl bg-orange-500 text-white px-4 py-2 text-sm font-medium shadow-sm transition active:translate-y-px"
           >
             Ana Çeşit Ekle
           </button>
+          <button
+            onClick={load}
+            className="rounded-xl bg-neutral-200 px-4 py-2 text-sm font-medium text-neutral-800 hover:bg-neutral-300"
+          >
+            Yenile
+          </button>
         </div>
+
+        {error && <div className="px-6 pb-2 text-sm text-rose-600">{error}</div>}
 
         <div className="h-px w-full bg-neutral-200/70" />
 
         <div className="overflow-x-auto">
-          <table className="min-w-full table-fixed">
+          <table className="min-w-full table-fixed text-[13px]">
             <thead>
               <tr className="text-left text-sm text-neutral-500">
-                <th className="px-6 py-3 font-medium">Çeşit Adı</th>
-                <th className="w-48 px-6 py-3 font-medium">Ekstra Fiyat</th>
-                <th className="w-44 px-6 py-3" />
+                <th className="px-4 py-3 font-medium">Çeşit Adı</th>
+                <th className="w-40 px-4 py-3 font-medium">Ekstra Fiyat</th>
+                <th className="px-4 py-3 font-medium">Açıklama</th>
+                <th className="w-44 px-4 py-3" />
               </tr>
             </thead>
 
             <tbody>
-              {rows.map((r) => (
+              {loading && (
+                <tr>
+                  <td colSpan={4} className="px-6 py-10 text-center text-neutral-500">
+                    Yükleniyor…
+                  </td>
+                </tr>
+              )}
+
+              {!loading && rows.map((r) => (
                 <tr key={r.id} className="border-t border-neutral-200/70 align-middle">
-                  <td className="px-6 py-4">
+                  <td className="px-4 py-3">
                     <span className="font-semibold text-neutral-900">{r.name}</span>
                   </td>
-                  <td className="px-6 py-4 text-neutral-900">
+                  <td className="px-4 py-3 text-neutral-900">
                     {Number.isFinite(r.extraPrice) ? r.extraPrice : 0}
                   </td>
-                  <td className="px-6 py-4">
+                  <td className="px-4 py-3 text-neutral-700">
+                    <div className="line-clamp-2">{r.description || '-'}</div>
+                  </td>
+                  <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setOpen({ mode: 'edit', row: r })}
+                        className="rounded-md bg-emerald-500 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-600"
+                      >
+                        Düzenle
+                      </button>
                       <button
                         onClick={() => handleDelete(r.id)}
                         className="rounded-md bg-red-500 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-red-600 active:translate-y-px"
                       >
                         Sil
                       </button>
-                      <button
-                        onClick={() => handleEdit(r.id)}
-                        className="rounded-md bg-green-500 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-green-600 active:translate-y-px"
-                      >
-                        Düzenle
-                      </button>
                     </div>
                   </td>
                 </tr>
               ))}
 
-              {rows.length === 0 && (
+              {!loading && rows.length === 0 && (
                 <tr>
-                  <td colSpan={3} className="px-6 py-12 text-center text-sm text-neutral-500">
+                  <td colSpan={4} className="px-6 py-12 text-center text-sm text-neutral-500">
                     Henüz yük tipi yok. Üstteki <strong>“Ana Çeşit Ekle”</strong> ile ekleyebilirsin.
                   </td>
                 </tr>
@@ -111,75 +170,122 @@ export default function LoadTypesPage() {
         </div>
       </section>
 
-      {open && <AddLoadTypeModal onClose={() => setOpen(false)} onCreate={handleCreate} />}
+      {open && (
+        <UpsertLoadTypeModal
+          mode={open.mode}
+          row={open.mode === 'edit' ? open.row : undefined}
+          onClose={() => setOpen(false)}
+          onSaved={async () => { setOpen(false); await load(); }}
+        />
+      )}
     </div>
   );
 }
 
-/* ---------------- Modal: Yeni yük tipi ekle ---------------- */
+/* ---------------- Modal: Ekle/Düzenle (multipart) ---------------- */
 
-function AddLoadTypeModal({
+function UpsertLoadTypeModal({
+  mode,
+  row,
   onClose,
-  onCreate,
+  onSaved,
 }: {
+  mode: 'create' | 'edit';
+  row?: Row;
   onClose: () => void;
-  onCreate: (item: Omit<LoadType, 'id'>) => void;
+  onSaved: () => void;
 }) {
-  const [name, setName] = React.useState('');
-  const [price, setPrice] = React.useState<string>('');
+  const [name, setName] = React.useState(row?.name ?? '');
+  const [price, setPrice] = React.useState<string>(row ? String(row.extraPrice) : '');
+  const [description, setDescription] = React.useState(row?.description ?? '');
+  const [saving, setSaving] = React.useState(false);
+  const [err, setErr] = React.useState<string | null>(null);
 
-  function submit(e: React.FormEvent) {
+  async function submit(e: React.FormEvent) {
     e.preventDefault();
-    const n = Number(price);
-    if (!name.trim()) return;
-    onCreate({ name: name.trim(), extraPrice: Number.isFinite(n) ? n : 0 });
+    setSaving(true);
+    setErr(null);
+    try {
+      const fd = new FormData();
+      // Alan adları Swagger ile birebir:
+      fd.append('Name', name.trim());
+      if (price !== '') fd.append('Price', price); // boşsa hiç eklemiyoruz
+      fd.append('Description', description.trim());
+
+      const url =
+        mode === 'create'
+          ? `${API_BASE}/api/CargoType`
+          : `${API_BASE}/api/CargoType/${row!.id}`;
+
+      const res = await fetch(url, { method: 'POST', body: fd });
+      const txt = await res.text();
+      const json = txt ? JSON.parse(txt) : null;
+
+      if (!res.ok) throw new Error(json?.message || json?.title || `HTTP ${res.status}`);
+
+      await onSaved();
+    } catch (e: any) {
+      setErr(e?.message || 'Kayıt kaydedilemedi.');
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4" role="dialog" aria-modal="true">
       <div className="w-full max-w-4xl rounded-2xl bg-white shadow-xl">
-        {/* Header */}
         <div className="flex items-center justify-between border-b px-5 py-4">
-          <h3 className="text-2xl font-semibold">Yeni yük tipi ekle</h3>
-          <button
-            className="rounded-full p-2 hover:bg-neutral-100"
-            onClick={onClose}
-            aria-label="Kapat"
-          >
-            ✕
-          </button>
+          <h3 className="text-2xl font-semibold">
+            {mode === 'create' ? 'Yeni yük tipi ekle' : `Yük tipini düzenle (ID: ${row?.id})`}
+          </h3>
+          <button className="rounded-full p-2 hover:bg-neutral-100" onClick={onClose} aria-label="Kapat">✕</button>
         </div>
 
-        {/* Body */}
         <form onSubmit={submit} className="space-y-4 p-5">
-          <div>
-            <label className="mb-1 block text-sm font-medium text-neutral-700">Yük Tipi</label>
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 text-neutral-800 outline-none ring-2 ring-transparent transition focus:border-neutral-300 focus:ring-sky-200"
-            />
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="sm:col-span-2">
+              <label className="mb-1 block text-sm font-medium text-neutral-700">Yük Tipi</label>
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 text-neutral-800 outline-none ring-2 ring-transparent transition focus:border-neutral-300 focus:ring-sky-200"
+              />
+            </div>
+
+            <div>
+              <label className="mb-1 block text-sm font-medium text-neutral-700">Ekstra Fiyat</label>
+              <input
+                type="number"
+                inputMode="decimal"
+                value={price}
+                onChange={(e) => setPrice(e.target.value)}
+                className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 text-neutral-800 outline-none ring-2 ring-transparent transition focus:border-neutral-300 focus:ring-sky-200"
+              />
+            </div>
+
+            <div>
+              <label className="mb-1 block text-sm font-medium text-neutral-700">Açıklama</label>
+              <input
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 text-neutral-800 outline-none ring-2 ring-transparent transition focus:border-neutral-300 focus:ring-sky-200"
+              />
+            </div>
           </div>
 
-          <div>
-            <label className="mb-1 block text-sm font-medium text-neutral-700">Ekstra Fiyat</label>
-            <input
-              type="number"
-              inputMode="decimal"
-              value={price}
-              onChange={(e) => setPrice(e.target.value)}
-              className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 text-neutral-800 outline-none ring-2 ring-transparent transition focus:border-neutral-300 focus:ring-sky-200"
-            />
-          </div>
+          {err && (
+            <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+              {err}
+            </div>
+          )}
 
-          {/* Footer */}
           <div className="mt-6 flex items-center justify-end gap-3">
             <button
               type="submit"
               className="rounded-xl bg-emerald-500 px-6 py-2 text-sm font-semibold text-white shadow hover:bg-emerald-600 disabled:opacity-50"
-              disabled={!name.trim()}
+              disabled={!name.trim() || saving}
             >
-              Kaydet
+              {saving ? 'Kaydediliyor…' : (mode === 'create' ? 'Kaydet' : 'Güncelle')}
             </button>
             <button
               type="button"

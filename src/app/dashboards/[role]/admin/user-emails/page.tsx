@@ -3,8 +3,7 @@
 
 import * as React from 'react';
 import { useParams } from 'next/navigation';
-import { API_BASE } from '@/configs/api'; 
-
+import { API_BASE } from '@/configs/api';
 
 enum ContactMessageStatus {
   New = 1,
@@ -21,6 +20,9 @@ type RawContact = {
   message: string;
   status: string | number;
   createdAt: string;
+  // soft-delete alanları (API dönebilir)
+  isActive?: boolean;
+  isDeleted?: boolean;
 };
 
 type Row = {
@@ -39,10 +41,8 @@ function fmtDate(d: Date | null) {
   try { return d.toLocaleString(); } catch { return '-'; }
 }
 
-/** Eski (0/1) ve yeni (1/2/3) şemalara uyumlu status normalizasyonu */
 function normalizeStatus(v: string | number | undefined | null): Row['status'] {
   if (v == null) return 'new';
-
   if (typeof v === 'string') {
     const s = v.trim().toLowerCase();
     if (s === 'read' || s === 'okundu') return 'read';
@@ -50,12 +50,19 @@ function normalizeStatus(v: string | number | undefined | null): Row['status'] {
     if (Number.isFinite(n)) return normalizeStatus(n);
     return 'new';
   }
-
-  // number
   if (v === 3) return 'archived';
   if (v === 2) return 'read';
-  if (v === 1) return 'read';   // eski: 1=read, 0=new
-  return 'new';                 // 0 veya diğerleri
+  if (v === 1) return 'read'; // eski: 1=read, 0=new
+  return 'new';
+}
+
+// DELETE yardımcıları
+async function readJson(res: Response) {
+  const txt = await res.text();
+  try { return txt ? JSON.parse(txt) : null; } catch { return null; }
+}
+function errMsgOf(j: any, fallback = 'İşlem başarısız.') {
+  return j?.message || j?.title || j?.detail || fallback;
 }
 
 export default function UserEmailsPage() {
@@ -73,15 +80,12 @@ export default function UserEmailsPage() {
     setError(null);
     try {
       const res = await fetch(`${API_BASE}/api/Contact/messages`, { cache: 'no-store' });
-      const txt = await res.text();
-      const j = txt ? JSON.parse(txt) : null;
+      const j = await readJson(res);
+      if (!res.ok) throw new Error(errMsgOf(j, `HTTP ${res.status}`));
 
-      if (!res.ok) {
-        const msg = j?.message || j?.title || `HTTP ${res.status}`;
-        throw new Error(msg);
-      }
-
-      const list: RawContact[] = Array.isArray(j?.data) ? j.data : (Array.isArray(j) ? j : []);
+      // Sadece aktif ve silinmemiş olanları al
+      const listAll: RawContact[] = Array.isArray(j?.data) ? j.data : (Array.isArray(j) ? j : []);
+      const list = listAll.filter(it => (it.isActive ?? true) === true && (it.isDeleted ?? false) === false);
 
       const mapped: Row[] = list.map((c) => ({
         id: String(c.id),
@@ -120,7 +124,6 @@ export default function UserEmailsPage() {
     const already = rows.find(r => r.id === id)?.status === 'read';
     if (already) return;
 
-    // optimistic
     setRows((p) => p.map(r => r.id === id ? { ...r, status: 'read' } : r));
 
     try {
@@ -129,25 +132,49 @@ export default function UserEmailsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: Number(id), status: ContactMessageStatus.Read }),
       });
-
       if (!res.ok) {
-        setRows(prev); // geri al
-        const txt = await res.text();
-        let msg = 'İşaretlenemedi.';
-        try { msg = (txt && JSON.parse(txt)?.message) || msg; } catch {}
-        throw new Error(msg);
+        setRows(prev);
+        const j = await readJson(res);
+        throw new Error(errMsgOf(j, 'İşaretlenemedi.'));
       }
-
-      // backend’deki gerçek değeri de çekip eşitle (opsiyonel ama tavsiye edilir)
       await load();
     } catch (err) {
       alert((err as Error).message || 'İşaretlenemedi.');
     }
   }
 
-  function removeLocal(id: string) {
-    if (!confirm('Bu mesajı listeden kaldırmak istiyor musun?')) return;
-    setRows((prev) => prev.filter((r) => r.id !== id));
+  // === SİL (soft delete) ===
+  async function removeRemote(id: string) {
+    if (!confirm('Bu mesajı silmek (arşivlemek) istiyor musun?')) return;
+
+    const prev = rows;
+    // optimistic: listeden kaldır
+    setRows(p => p.filter(r => r.id !== id));
+
+    try {
+      // 1) Body ile deneyelim (isActive:false, isDeleted:true)
+      let res = await fetch(`${API_BASE}/api/Contact/${Number(id)}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isActive: false, isDeleted: true }),
+      });
+
+      // 400/415 vs gelirse gövdesiz yeniden dene
+      if (!res.ok && (res.status === 400 || res.status === 415 || res.status === 405)) {
+        res = await fetch(`${API_BASE}/api/Contact/${Number(id)}`, { method: 'DELETE' });
+      }
+
+      if (!res.ok) {
+        setRows(prev); // geri al
+        const j = await readJson(res);
+        throw new Error(errMsgOf(j, 'Silinemedi.'));
+      }
+
+      // başarı: yeniden yükle ve yalnızca aktif/silinmemişleri göster
+      await load();
+    } catch (e: any) {
+      alert(e?.message || 'Silinemedi.');
+    }
   }
 
   return (
@@ -250,7 +277,7 @@ export default function UserEmailsPage() {
                         {r.status === 'read' ? 'Okundu' : 'Okundu İşaretle'}
                       </button>
                       <button
-                        onClick={() => removeLocal(r.id)}
+                        onClick={() => removeRemote(r.id)}
                         className="rounded-lg bg-rose-500 px-3 py-1.5 text-sm font-semibold text-white shadow hover:bg-rose-600"
                       >
                         Sil
