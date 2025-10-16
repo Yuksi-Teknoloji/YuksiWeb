@@ -2,74 +2,65 @@
 "use client";
 
 import * as React from "react";
-import { API_BASE } from '@/configs/api'; 
 
-type Country = { id: number; name: string; code?: string; phoneCode?: string };
+type Country = { id: number; name: string; iso2?: string; iso3?: string; phonecode?: string };
+type State   = { id: number; name: string };
 type City    = { id: number; name: string };
-type District= { id: number; name: string };
-
-
 
 export default function RestaurantCreatePage() {
-  const [saving, setSaving] = React.useState(false);
-  const [okMsg, setOkMsg] = React.useState<string | null>(null);
-  const [errMsg, setErrMsg] = React.useState<string | null>(null);
+  const [saving, setSaving]   = React.useState(false);
+  const [okMsg, setOkMsg]     = React.useState<string | null>(null);
+  const [errMsg, setErrMsg]   = React.useState<string | null>(null);
+  const [formKey, setFormKey] = React.useState(0);
 
-  // ---- Ülke
-  const [countries, setCountries] = React.useState<Country[]>([]);
+  // -------- Geo state --------
+  const [countries, setCountries]               = React.useState<Country[]>([]);
   const [countriesLoading, setCountriesLoading] = React.useState(false);
-  const [countriesError, setCountriesError] = React.useState<string | null>(null);
-  const [countryId, setCountryId] = React.useState<number | "">("");
+  const [countriesError, setCountriesError]     = React.useState<string | null>(null);
+  const [countryId, setCountryId]               = React.useState<number | "">("");
 
-  // ---- Şehir
-  const [cities, setCities] = React.useState<City[]>([]);
+  const [states, setStates]               = React.useState<State[]>([]);
+  const [statesLoading, setStatesLoading] = React.useState(false);
+  const [statesError, setStatesError]     = React.useState<string | null>(null);
+  const [stateId, setStateId]             = React.useState<number | "">("");
+
+  const [cities, setCities]               = React.useState<City[]>([]);
   const [citiesLoading, setCitiesLoading] = React.useState(false);
-  const [citiesError, setCitiesError] = React.useState<string | null>(null);
-  const [cityId, setCityId] = React.useState<number | "">("");
-
-  // ---- İlçe
-  const [districts, setDistricts] = React.useState<District[]>([]);
-  const [districtsLoading, setDistrictsLoading] = React.useState(false);
-  const [districtsError, setDistrictsError] = React.useState<string | null>(null);
-  const [districtId, setDistrictId] = React.useState<number | "">("");
+  const [citiesError, setCitiesError]     = React.useState<string | null>(null);
+  const [cityId, setCityId]               = React.useState<number | "">("");
 
   // ---- helpers
   async function readJson(res: Response) {
-    const text = await res.text();
-    try { return text ? JSON.parse(text) : null; } catch { throw new Error("Geçersiz JSON"); }
+    const t = await res.text();
+    try { return t ? JSON.parse(t) : null; } catch { throw new Error("Geçersiz JSON"); }
   }
-  function extractErrorMessage(raw: any): string | null {
-    if (!raw) return null;
-    const container = (raw && typeof raw === "object" && raw.error) ? raw.error : raw;
-    const errs = container?.errors || container?.data?.errors;
-    if (errs && typeof errs === "object") {
-      const parts: string[] = [];
-      for (const k of Object.keys(errs)) {
-        const v = errs[k];
-        if (Array.isArray(v)) v.forEach((m: any) => parts.push(`${k}: ${m}`));
-        else if (typeof v === "string") parts.push(`${k}: ${v}`);
-      }
-      if (parts.length) return parts.join("\n");
-    }
-    const direct = container?.message || container?.error || container?.detail || container?.title;
-    if (typeof direct === "string" && direct.trim()) return direct.trim();
-    try { return JSON.stringify(container); } catch { return String(container); }
-  }
+  const pickMsg = (d: any, fallback: string) =>
+    (d?.error?.message || d?.message || d?.detail || d?.title || fallback);
 
-  // ---- Ülkeler
+  /* 1) ÜLKELER: GET /geo/countries?q=&limit=&offset= */
   React.useEffect(() => {
     let cancelled = false;
     (async () => {
       setCountriesLoading(true);
       setCountriesError(null);
       try {
-        const res = await fetch(`${API_BASE}/api/Lookup/countries`, { cache: "no-store" });
+        const url = new URL("/yuksi/geo/countries", location.origin);
+        url.searchParams.set("limit", "200"); // swagger max 200
+        url.searchParams.set("offset", "0");
+
+        const res  = await fetch(url.toString(), { cache: "no-store" });
         const data = await readJson(res);
-        if (!res.ok) throw new Error(extractErrorMessage(data) || `HTTP ${res.status}`);
-        const list = Array.isArray(data?.data) ? data.data : [];
-        const mapped: Country[] = list
-          .map((c: any) => ({ id: Number(c?.id), name: String(c?.name || "") }))
-          .filter((c: Country) => Number.isFinite(c.id) && c.name);
+        if (!res.ok) throw new Error(pickMsg(data, `HTTP ${res.status}`));
+
+        const list: any[] = Array.isArray(data) ? data : Array.isArray(data?.data) ? data.data : [];
+        const mapped: Country[] = list.map((c) => ({
+          id: Number(c?.id),
+          name: String(c?.name ?? ""),
+          iso2: c?.iso2,
+          iso3: c?.iso3,
+          phonecode: c?.phonecode,
+        })).filter(c => Number.isFinite(c.id) && c.name);
+
         if (!cancelled) setCountries(mapped);
       } catch (e: any) {
         if (!cancelled) setCountriesError(e?.message || "Ülke listesi alınamadı.");
@@ -80,26 +71,67 @@ export default function RestaurantCreatePage() {
     return () => { cancelled = true; };
   }, []);
 
-  // ---- Ülke değişince şehirleri çek
+  /* 2) ÜLKE seçilince EYALET/İL: GET /geo/states?country_id= */
   React.useEffect(() => {
-    if (countryId === "" || !Number.isFinite(Number(countryId))) {
-      setCities([]); setCityId(""); setDistricts([]); setDistrictId("");
-      return;
-    }
+    setStates([]); setStateId(""); setCities([]); setCityId("");
+    if (countryId === "" || !Number.isFinite(Number(countryId))) return;
+
+    let cancelled = false;
+    (async () => {
+      setStatesLoading(true);
+      setStatesError(null);
+      try {
+        const url = new URL("/yuksi/geo/states", location.origin);
+        url.searchParams.set("country_id", String(countryId));
+        url.searchParams.set("limit", "500");
+        url.searchParams.set("offset", "0");
+
+        const res  = await fetch(url.toString(), { cache: "no-store" });
+        const data = await readJson(res);
+        if (!res.ok) throw new Error(pickMsg(data, `HTTP ${res.status}`));
+
+        const list: any[] = Array.isArray(data) ? data : Array.isArray(data?.data) ? data.data : [];
+        const mapped: State[] = list.map((s) => ({
+          id: Number(s?.id),
+          name: String(s?.name ?? ""),
+        })).filter(s => Number.isFinite(s.id) && s.name);
+
+        if (!cancelled) setStates(mapped);
+      } catch (e: any) {
+        if (!cancelled) setStatesError(e?.message || "Eyalet/İl listesi alınamadı.");
+      } finally {
+        if (!cancelled) setStatesLoading(false);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [countryId]);
+
+  /* 3) STATE seçilince ŞEHİR/İLÇE: GET /geo/cities?state_id= */
+  React.useEffect(() => {
+    setCities([]); setCityId("");
+    if (stateId === "" || !Number.isFinite(Number(stateId))) return;
+
     let cancelled = false;
     (async () => {
       setCitiesLoading(true);
       setCitiesError(null);
-      setCityId("");            // ülke değişince seçimi sıfırla
-      setDistricts([]); setDistrictId("");
       try {
-        const res = await fetch(`${API_BASE}/api/Lookup/cities/${countryId}`, { cache: "no-store" });
+        const url = new URL("/yuksi/geo/cities", location.origin);
+        url.searchParams.set("state_id", String(stateId));
+        url.searchParams.set("limit", "1000");
+        url.searchParams.set("offset", "0");
+
+        const res  = await fetch(url.toString(), { cache: "no-store" });
         const data = await readJson(res);
-        if (!res.ok) throw new Error(extractErrorMessage(data) || `HTTP ${res.status}`);
-        const list = Array.isArray(data?.data) ? data.data : [];
-        const mapped: City[] = list
-          .map((c: any) => ({ id: Number(c?.id), name: String(c?.name || "") }))
-          .filter((c: City) => Number.isFinite(c.id) && c.name);
+        if (!res.ok) throw new Error(pickMsg(data, `HTTP ${res.status}`));
+
+        const list: any[] = Array.isArray(data) ? data : Array.isArray(data?.data) ? data.data : [];
+        const mapped: City[] = list.map((c) => ({
+          id: Number(c?.id),
+          name: String(c?.name ?? ""),
+        })).filter(c => Number.isFinite(c.id) && c.name);
+
         if (!cancelled) setCities(mapped);
       } catch (e: any) {
         if (!cancelled) setCitiesError(e?.message || "Şehir listesi alınamadı.");
@@ -107,79 +139,58 @@ export default function RestaurantCreatePage() {
         if (!cancelled) setCitiesLoading(false);
       }
     })();
-    return () => { cancelled = true; };
-  }, [countryId]);
 
-  // ---- Şehir değişince ilçeleri çek
-  React.useEffect(() => {
-    if (cityId === "" || !Number.isFinite(Number(cityId))) {
-      setDistricts([]); setDistrictId("");
-      return;
-    }
-    let cancelled = false;
-    (async () => {
-      setDistrictsLoading(true);
-      setDistrictsError(null);
-      setDistrictId("");        // şehir değişince ilçeyi sıfırla
-      try {
-        const res = await fetch(`${API_BASE}/api/Lookup/districts/${cityId}`, { cache: "no-store" });
-        const data = await readJson(res);
-        if (!res.ok) throw new Error(extractErrorMessage(data) || `HTTP ${res.status}`);
-        const list = Array.isArray(data?.data) ? data.data : [];
-        const mapped: District[] = list
-          .map((d: any) => ({ id: Number(d?.id), name: String(d?.name || "") }))
-          .filter((d: District) => Number.isFinite(d.id) && d.name);
-        if (!cancelled) setDistricts(mapped);
-      } catch (e: any) {
-        if (!cancelled) setDistrictsError(e?.message || "İlçe listesi alınamadı.");
-      } finally {
-        if (!cancelled) setDistrictsLoading(false);
-      }
-    })();
     return () => { cancelled = true; };
-  }, [cityId]);
+  }, [stateId]);
 
   // ---- Submit
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    setSaving(true); setOkMsg(null); setErrMsg(null);
 
     const form = e.currentTarget;
-    setSaving(true); 
-    setOkMsg(null); 
-    setErrMsg(null);
 
-    const fd = new FormData(form);
+    const fd = new FormData(form)
     const payload = {
       email:         String(fd.get("email") || ""),
       password:      String(fd.get("password") || ""),
       phone:         String(fd.get("phone") || ""),
-      countryId:     Number(fd.get("countryId") || 0),
       name:          String(fd.get("name") || ""),
       contactPerson: String(fd.get("contactPerson") || ""),
       taxNumber:     String(fd.get("taxNumber") || ""),
-      addresLine1:  String(fd.get("addresLine1") || ""),
+      addresLine1:   String(fd.get("addresLine1") || ""),
       addressLine2:  String(fd.get("addressLine2") || ""),
-      cityId:        Number(fd.get("cityId") || 0),
-      districtId:    Number(fd.get("districtId") || 0),
+      countryId: Number(countryId || 0),
+      stateId:   Number(stateId   || 0),
+      cityId:    Number(cityId    || 0),
+      //districtId: Number(stateId || 0),
     };
 
     try {
-      const res = await fetch(`${API_BASE}/api/Restaurant/register`, {
+      const res  = await fetch("/yuksi/Restaurant/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
         cache: "no-store",
       });
       const data = await readJson(res);
-      if (!res.ok) throw new Error(extractErrorMessage(data) || `HTTP ${res.status}`);
+      if (!res.ok) throw new Error(pickMsg(data, `HTTP ${res.status}`));
 
-      setOkMsg((data?.data && data?.data?.message) || "Restoran başarıyla kaydedildi.");
-      (form).reset();
-      // seçimleri de sıfırla:
-      setCountryId(""); setCities([]); setCityId(""); setDistricts([]); setDistrictId("");
+      setOkMsg(data?.data?.message || "Restoran başarıyla kaydedildi.");
+      setFormKey(k => k + 1);
+
+      // seçimleri sıfırla
+       setCountryId(""); setStates([]); setStateId(""); setCities([]); setCityId("");
+      form?.reset?.();
     } catch (err: any) {
-      setErrMsg(err?.message || "Kayıt sırasında bir hata oluştu.");
-    } finally { setSaving(false); }
+      const m =
+    typeof err?.message === 'string'
+      ? err.message
+      : (() => { try { return JSON.stringify(err); } catch { return 'Bilinmeyen hata'; } })();
+  setErrMsg(m);
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -188,44 +199,39 @@ export default function RestaurantCreatePage() {
         <h1 className="text-2xl font-semibold tracking-tight">Yeni Restoran Kaydı</h1>
       </div>
 
-      <form onSubmit={onSubmit} className="grid gap-6 lg:grid-cols-2">
-        {/* Sol kolon – zorunlu alanlar */}
+      <form key={formKey} onSubmit={onSubmit} className="grid gap-6 lg:grid-cols-2">
+        {/* Sol kolon – zorunlu alanlar + Geo seçimleri */}
         <section className="rounded-2xl border border-neutral-200/70 bg-white p-6 shadow-sm soft-card">
           <div className="space-y-4">
             <div>
               <label className="mb-1 block text-sm font-medium text-neutral-700">Restoran Adı</label>
-              <input name="name" required className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none ring-2 ring-transparent transition focus:ring-sky-200"/>
+              <input name="name" required className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none ring-2 ring-transparent transition focus:ring-sky-200" />
             </div>
             <div>
               <label className="mb-1 block text-sm font-medium text-neutral-700">Yetkili Ad Soyad</label>
-              <input name="contactPerson" required className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none ring-2 ring-transparent transition focus:ring-sky-200"/>
+              <input name="contactPerson" required className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none ring-2 ring-transparent transition focus:ring-sky-200" />
             </div>
             <div>
               <label className="mb-1 block text-sm font-medium text-neutral-700">Telefon</label>
-              <input name="phone" type="tel" required placeholder="+90 5xx xxx xx xx" className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none ring-2 ring-transparent transition focus:ring-sky-200"/>
+              <input name="phone" type="tel" required placeholder="+90 5xx xxx xx xx" className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none ring-2 ring-transparent transition focus:ring-sky-200" />
             </div>
             <div>
               <label className="mb-1 block text-sm font-medium text-neutral-700">E-posta</label>
-              <input name="email" type="email" required placeholder="ornek@eposta.com" className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none ring-2 ring-transparent transition focus:ring-sky-200"/>
+              <input name="email" type="email" required placeholder="ornek@eposta.com" className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none ring-2 ring-transparent transition focus:ring-sky-200" />
             </div>
             <div>
               <label className="mb-1 block text-sm font-medium text-neutral-700">Şifre</label>
-              <input name="password" type="password" required placeholder="••••••••" className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none ring-2 ring-transparent transition focus:ring-sky-200"/>
+              <input name="password" type="password" required placeholder="••••••••" className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none ring-2 ring-transparent transition focus:ring-sky-200" />
             </div>
 
+            {/* Ülke / State */}
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
                 <label className="mb-1 block text-sm font-medium text-neutral-700">Ülke</label>
-
-                {/* backend’e gidecek hidden değerler */}
-                <input type="hidden" name="countryId"  value={countryId   === "" ? "" : String(countryId)} />
-                <input type="hidden" name="cityId"     value={cityId      === "" ? "" : String(cityId)} />
-                <input type="hidden" name="districtId" value={districtId  === "" ? "" : String(districtId)} />
-
                 <select
                   value={countryId}
                   onChange={(e) => setCountryId(e.target.value ? Number(e.target.value) : "")}
-                  className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none ring-2 ring-transparent transition focus:ring-sky-200"
+                  className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2"
                 >
                   <option value="">{countriesLoading ? "Yükleniyor…" : "Ülke seçin…"}</option>
                   {countriesError && <option value="">{countriesError}</option>}
@@ -236,48 +242,53 @@ export default function RestaurantCreatePage() {
               </div>
 
               <div>
+                <label className="mb-1 block text-sm font-medium text-neutral-700">Eyalet / İl</label>
+                <select
+                  value={stateId}
+                  onChange={(e) => setStateId(e.target.value ? Number(e.target.value) : "")}
+                  disabled={!countryId || statesLoading}
+                  className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 disabled:opacity-60"
+                >
+                  <option value="">
+                    {statesLoading ? "Yükleniyor…" : (countryId ? "Eyalet/İl seçin…" : "Önce ülke seçin")}
+                  </option>
+                  {statesError && <option value="">{statesError}</option>}
+                  {!statesLoading && !statesError && states.map(s => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* City + Vergi No */}
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
                 <label className="mb-1 block text-sm font-medium text-neutral-700">Şehir</label>
                 <select
                   value={cityId}
                   onChange={(e) => setCityId(e.target.value ? Number(e.target.value) : "")}
-                  disabled={!countryId || citiesLoading}
-                  className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none ring-2 ring-transparent transition focus:ring-sky-200 disabled:opacity-60"
+                  disabled={!stateId || citiesLoading}
+                  className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 disabled:opacity-60"
                 >
-                  <option value="">{citiesLoading ? "Yükleniyor…" : (countryId ? "Şehir seçin…" : "Önce ülke seçin")}</option>
+                  <option value="">
+                    {citiesLoading ? "Yükleniyor…" : (stateId ? "Şehir seçin…" : "Önce eyalet/il seçin")}
+                  </option>
                   {citiesError && <option value="">{citiesError}</option>}
                   {!citiesLoading && !citiesError && cities.map(c => (
                     <option key={c.id} value={c.id}>{c.name}</option>
                   ))}
                 </select>
               </div>
-            </div>
-
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div>
-                <label className="mb-1 block text-sm font-medium text-neutral-700">İlçe</label>
-                <select
-                  value={districtId}
-                  onChange={(e) => setDistrictId(e.target.value ? Number(e.target.value) : "")}
-                  disabled={!cityId || districtsLoading}
-                  className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none ring-2 ring-transparent transition focus:ring-sky-200 disabled:opacity-60"
-                >
-                  <option value="">{districtsLoading ? "Yükleniyor…" : (cityId ? "İlçe seçin…" : "Önce şehir seçin")}</option>
-                  {districtsError && <option value="">{districtsError}</option>}
-                  {!districtsLoading && !districtsError && districts.map(d => (
-                    <option key={d.id} value={d.id}>{d.name}</option>
-                  ))}
-                </select>
-              </div>
 
               <div>
                 <label className="mb-1 block text-sm font-medium text-neutral-700">Vergi No</label>
-                <input name="taxNumber" required className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none ring-2 ring-transparent transition focus:ring-sky-200"/>
+                <input name="taxNumber" required className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none ring-2 ring-transparent transition focus:ring-sky-200" />
               </div>
             </div>
           </div>
         </section>
 
-        {/* Sağ kolon – Adres satırları */}
+        {/* Sağ kolon – Adres ve Submit */}
         <section className="rounded-2xl border border-neutral-200/70 bg-white p-6 shadow-sm soft-card">
           <div className="space-y-4">
             <div>
@@ -300,8 +311,16 @@ export default function RestaurantCreatePage() {
             </button>
           </div>
 
-          {okMsg && <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{okMsg}</div>}
-          {errMsg && <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{errMsg}</div>}
+          {okMsg && (
+            <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+              {okMsg}
+            </div>
+          )}
+          {errMsg && (
+            <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+              {errMsg}
+            </div>
+          )}
         </section>
       </form>
     </div>

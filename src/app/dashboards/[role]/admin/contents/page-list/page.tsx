@@ -3,30 +3,14 @@
 
 import * as React from 'react';
 import MiniRTE from '@/components/subsect/MiniRTE';
-import { API_BASE } from '@/configs/api';
 
-/* ---------- API tipleri ---------- */
-type ApiSubSection = {
-  id: number;
-  title: string;
-  contentType: string | number;  // GET: string, PUT: number
-  showInMenu: boolean;
-  showInFooter: boolean;
-  content: string;
-  isActive: boolean;
-  isDeleted: boolean;
-};
+/* ---------- Enum & yardımcılar ---------- */
+// Backend enum’u
+// 1: Destek, 2: Hakkimizda, 3: Iletisim, 4: GizlilikPolitikasi,
+// 5: KullanimKosullari, 6: KuryeGizlilikSözlesmesi, 7: KuryeTasiyiciSözlesmesi
+type ContentType = 1 | 2 | 3 | 4 | 5 | 6 | 7;
 
-type ContentRow = {
-  id: string;
-  title: string;
-  type: 'page' | 'post';
-  badge?: string;
-  raw: ApiSubSection;
-};
-
-/* ---------- ContentType eşleştirme (string <-> enum) ---------- */
-const CONTENT_TYPES: { value: number; label: string }[] = [
+const CT_OPTIONS: { value: ContentType; label: string }[] = [
   { value: 1, label: 'Destek' },
   { value: 2, label: 'Hakkimizda' },
   { value: 3, label: 'Iletisim' },
@@ -36,13 +20,47 @@ const CONTENT_TYPES: { value: number; label: string }[] = [
   { value: 7, label: 'KuryeTasiyiciSözlesmesi' },
 ];
 
-const enumToLabel = (v: number) =>
-  CONTENT_TYPES.find(x => x.value === v)?.label ?? 'Destek';
+const ctLabel = (v: ContentType) =>
+  CT_OPTIONS.find(o => o.value === v)?.label ?? String(v);
 
-const labelToEnum = (lbl: string) =>
-  CONTENT_TYPES.find(
-    x => x.label.toLowerCase() === String(lbl).trim().toLowerCase()
-  )?.value ?? 1;
+/** API bazen string label dönerse de yakalayalım */
+const ctFromAny = (raw: unknown): ContentType => {
+  if (typeof raw === 'number') {
+    const n = Math.trunc(raw);
+    return ([1,2,3,4,5,6,7] as number[]).includes(n) ? (n as ContentType) : 1;
+  }
+  const s = String(raw || '').trim().toLowerCase();
+  const hit = CT_OPTIONS.find(o => o.label.toLowerCase() === s);
+  return (hit?.value ?? 1) as ContentType;
+};
+
+/* ---------- API tipleri (artık enum/int) ---------- */
+type ApiSubSection = {
+  id: number;
+  title: string;
+  content_type: ContentType;   // ← INT
+  show_in_menu: boolean;
+  show_in_footer: boolean;
+  content: string;
+  created_at?: string;
+  updated_at?: string;
+};
+
+type ContentRow = {
+  id: string;
+  title: string;
+  type: 'page';
+  badge?: string;
+  raw: ApiSubSection;
+};
+
+/* ---------- küçük yardımcılar ---------- */
+async function readJson(res: Response) {
+  const t = await res.text();
+  try { return t ? JSON.parse(t) : null; } catch { return null; }
+}
+const pickMsg = (d: any, fallback: string) =>
+  d?.message || d?.title || d?.detail || d?.error?.message || fallback;
 
 export default function ContentPageList() {
   const [rows, setRows] = React.useState<ContentRow[]>([]);
@@ -55,28 +73,38 @@ export default function ContentPageList() {
   const [okMsg, setOkMsg] = React.useState<string | null>(null);
   const [globalErr, setGlobalErr] = React.useState<string | null>(null);
 
-  /* -------- LIST (GET /api/SubSection) -------- */
+  /* -------- LIST (GET /api/SubSection/all) -------- */
   const load = React.useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const r = await fetch(`${API_BASE}/api/SubSection`, { cache: 'no-store' });
-      const t = await r.text();
-      const j = t ? JSON.parse(t) : null;
-      if (!r.ok) throw new Error(j?.message || j?.title || `HTTP ${r.status}`);
+      const res = await fetch('/yuksi/SubSection/all', { cache: 'no-store' });
+      const j = await readJson(res);
+      if (!res.ok) throw new Error(pickMsg(j, `HTTP ${res.status}`));
 
-      let list: ApiSubSection[] = Array.isArray(j?.data) ? j.data : [];
+      // j.data[] içindeki content_type hem string hem int gelebilir → normalize et
+      const arr: any[] = Array.isArray(j?.data) ? j.data : [];
+      const mapped: ContentRow[] = arr.map((it) => {
+        const ct: ContentType = ctFromAny(it?.content_type);
+        const raw: ApiSubSection = {
+          id: Number(it.id),
+          title: it.title ?? '-',
+          content_type: ct,
+          show_in_menu: !!it.show_in_menu,
+          show_in_footer: !!it.show_in_footer,
+          content: String(it.content ?? ''),
+          created_at: it.created_at,
+          updated_at: it.updated_at,
+        };
+        return {
+          id: String(raw.id),
+          title: raw.title,
+          type: 'page',
+          badge: raw.show_in_menu || raw.show_in_footer ? 'YÜKSİ' : undefined,
+          raw,
+        };
+      });
 
-      // 🔎 Sadece aktif ve silinmemiş kayıtlar
-      list = list.filter(it => it.isActive === true && it.isDeleted === false);
-
-      const mapped: ContentRow[] = list.map(it => ({
-        id: String(it.id),
-        title: it.title ?? '-',
-        type: 'page',
-        badge: it.showInMenu || it.showInFooter ? 'YÜKSİ' : undefined,
-        raw: it,
-      }));
       setRows(mapped);
     } catch (e: any) {
       setError(e?.message || 'Alt bölüm listesi alınamadı.');
@@ -87,40 +115,20 @@ export default function ContentPageList() {
 
   React.useEffect(() => { load(); }, [load]);
 
-  /* -------- SOFT DELETE (Delete /api/SubSection/{Id}) -------- */
-  function toNumericId(rowOrId: { id?: any } | string | number): number | null {
-    const raw = typeof rowOrId === 'object' && rowOrId !== null ? (rowOrId as any).id : rowOrId;
-    const n = Number(String(raw).trim());
-    return Number.isFinite(n) ? n : null;
-  }
-
-  async function readProblem(res: Response): Promise<any> {
-    const txt = await res.text();
-    try { return txt ? JSON.parse(txt) : null; } catch { return txt || null; }
-  }
-
+  /* -------- DELETE (DELETE /api/SubSection/delete/{id}) -------- */
   async function handleDelete(idOrStr: string | number) {
     setGlobalErr(null);
     setOkMsg(null);
     try {
-      const r = rows.find(x => String(x.id) === String(idOrStr));
-      const subId = toNumericId(r ?? idOrStr);
-      if (subId == null) throw new Error('Bu kayıt için sayısal Id bulunamadı.');
-
+      const numericId = Number(String(idOrStr));
+      if (!Number.isFinite(numericId)) throw new Error('Sayısal Id bulunamadı.');
       if (!confirm('Silmek istediğine emin misin?')) return;
 
-      const res = await fetch(`${API_BASE}/api/SubSection/${subId}`, { method: 'DELETE' });
-      if (!res.ok) {
-        const prob = await readProblem(res);
-        const msg = typeof prob === 'string' ? prob : (prob?.title || prob?.message || `HTTP ${res.status}`);
-        throw new Error(`Silinemedi: ${msg}`);
-      }
+      const res = await fetch(`/yuksi/SubSection/delete/${numericId}`, { method: 'DELETE' });
+      const d = await readJson(res);
+      if (!res.ok) throw new Error(pickMsg(d, `HTTP ${res.status}`));
 
-      // UI’dan anında çıkar (optimistic)
-      setRows(prev => prev.filter(x => toNumericId(x) !== subId));
-
-      await load();
-
+      setRows((prev) => prev.filter((x) => Number(x.id) !== numericId));
       setOkMsg('Kayıt silindi.');
     } catch (e: any) {
       setGlobalErr(e?.message || 'Silme işlemi başarısız.');
@@ -129,7 +137,7 @@ export default function ContentPageList() {
 
   /* -------- EDIT open -------- */
   const openEdit = (id: string) => {
-    const r = rows.find(x => x.id === id) || null;
+    const r = rows.find((x) => x.id === id) || null;
     if (r) setEditRow(r);
   };
 
@@ -138,10 +146,16 @@ export default function ContentPageList() {
       <div className="flex items-center justify-between px-2 sm:px-0">
         <h1 className="text-2xl font-semibold tracking-tight">İçerik Listesi</h1>
         <div className="flex items-center gap-2">
-          <button onClick={load} className="rounded-xl bg-neutral-200 px-4 py-2 text-sm font-medium text-neutral-800 hover:bg-neutral-300">
+          <button
+            onClick={load}
+            className="rounded-xl bg-neutral-200 px-4 py-2 text-sm font-medium text-neutral-800 hover:bg-neutral-300"
+          >
             Yenile
           </button>
-          <button onClick={() => setOpenCreate(true)} className="btn-accent rounded-2xl bg-orange-500 text-white px-4 py-2 text-sm font-medium shadow-sm transition active:translate-y-px">
+          <button
+            onClick={() => setOpenCreate(true)}
+            className="btn-accent rounded-2xl bg-orange-500 text-white px-4 py-2 text-sm font-medium shadow-sm transition active:translate-y-px"
+          >
             Yeni Ekle
           </button>
         </div>
@@ -164,19 +178,19 @@ export default function ContentPageList() {
               {!loading && error && (
                 <tr><td colSpan={3} className="px-6 py-10 text-center text-rose-600">{error}</td></tr>
               )}
-              {!loading && !error && rows.map(r => (
+              {!loading && !error && rows.map((r) => (
                 <tr key={r.id} className="border-t border-neutral-200/70 align-middle">
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-3">
-                      {r.badge && <span className="inline-flex items-center rounded-sm bg-orange-500 px-2 py-0.5 text-[11px] font-semibold text-white">{r.badge}</span>}
+                      {r.badge && (
+                        <span className="inline-flex items-center rounded-sm bg-orange-500 px-2 py-0.5 text-[11px] font-semibold text-white">
+                          {r.badge}
+                        </span>
+                      )}
                       <span className="font-semibold text-neutral-900">{r.title}</span>
                     </div>
                   </td>
-                  <td className="px-6 py-4 text-neutral-700">
-                    {typeof r.raw.contentType === 'number'
-                      ? enumToLabel(r.raw.contentType)
-                      : enumToLabel(labelToEnum(String(r.raw.contentType)))}
-                  </td>
+                  <td className="px-6 py-4 text-neutral-700">{ctLabel(r.raw.content_type)}</td>
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-2">
                       <button
@@ -196,7 +210,11 @@ export default function ContentPageList() {
                 </tr>
               ))}
               {!loading && !error && rows.length === 0 && (
-                <tr><td colSpan={3} className="px-6 py-12 text-center text-sm text-neutral-500">Kayıt yok. Sağ üstten <strong>“Yeni Ekle”</strong> ile ekleyebilirsin.</td></tr>
+                <tr>
+                  <td colSpan={3} className="px-6 py-12 text-center text-sm text-neutral-500">
+                    Kayıt yok. Sağ üstten <strong>“Yeni Ekle”</strong> ile ekleyebilirsin.
+                  </td>
+                </tr>
               )}
             </tbody>
           </table>
@@ -206,10 +224,7 @@ export default function ContentPageList() {
       {openCreate && (
         <CreateModal
           onClose={() => setOpenCreate(false)}
-          onCreated={async () => {
-            setOpenCreate(false);
-            await load();
-          }}
+          onCreated={async () => { setOpenCreate(false); await load(); }}
         />
       )}
 
@@ -217,17 +232,29 @@ export default function ContentPageList() {
         <EditModal
           row={editRow}
           onClose={() => setEditRow(null)}
-          onUpdated={async () => {
-            setEditRow(null);
-            await load();
-          }}
+          onUpdated={async () => { setEditRow(null); await load(); }}
         />
+      )}
+
+      {(okMsg || globalErr) && (
+        <div className="text-sm">
+          {okMsg && (
+            <div className="mt-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-emerald-700">
+              {okMsg}
+            </div>
+          )}
+          {globalErr && (
+            <div className="mt-3 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-rose-700">
+              {globalErr}
+            </div>
+          )}
+        </div>
       )}
     </div>
   );
 }
 
-/* ---------------------- CREATE (POST /api/SubSection) ---------------------- */
+/* ---------------------- CREATE (POST /api/SubSection/create) ---------------------- */
 function CreateModal({
   onClose,
   onCreated,
@@ -236,7 +263,9 @@ function CreateModal({
   onCreated: (created: ApiSubSection) => void;
 }) {
   const [title, setTitle] = React.useState('');
-  const [contentType, setContentType] = React.useState<number>(1); // Destek
+  const [contentType, setContentType] = React.useState<ContentType>(1); // Destek
+  const [showInMenu, setShowInMenu] = React.useState(false);
+  const [showInFooter, setShowInFooter] = React.useState(false);
   const [content, setContent] = React.useState('');
 
   const [saving, setSaving] = React.useState(false);
@@ -246,23 +275,21 @@ function CreateModal({
     e.preventDefault();
     setSaving(true); setErr(null);
     try {
-      // yeni kayıtlar default aktif / silinmemiş
       const payload = {
         title,
-        contentType,
+        content_type: contentType,       // ← INT
+        show_in_menu: showInMenu,
+        show_in_footer: showInFooter,
         content,
-        isActive: true,
-        isDeleted: false,
       };
-      const r = await fetch(`${API_BASE}/api/SubSection`, {
+      const r = await fetch('/yuksi/SubSection/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
         cache: 'no-store',
       });
-      const t = await r.text();
-      const d = t ? JSON.parse(t) : null;
-      if (!r.ok) throw new Error(d?.message || d?.title || `HTTP ${r.status}`);
+      const d = await readJson(r);
+      if (!r.ok) throw new Error(pickMsg(d, `HTTP ${r.status}`));
 
       const created: ApiSubSection = (d?.data ?? d) as ApiSubSection;
       onCreated(created);
@@ -282,24 +309,41 @@ function CreateModal({
         </div>
 
         <form onSubmit={submit} className="space-y-6 p-5">
-          <input
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="Başlık"
-            className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 text-neutral-800 outline-none ring-2 ring-transparent transition focus:border-neutral-300 focus:ring-sky-200"
-          />
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="md:col-span-2">
+              <label className="mb-2 block text-sm font-medium text-neutral-700">Başlık</label>
+              <input
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="Başlık"
+                className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2"
+                required
+              />
+            </div>
 
-          <div>
-            <label className="mb-2 block text-sm font-medium text-neutral-700">Content Type</label>
-            <select
-              value={contentType}
-              onChange={(e) => setContentType(Number(e.target.value))}
-              className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2"
-            >
-              {CONTENT_TYPES.map(ct => (
-                <option key={ct.value} value={ct.value}>{ct.label}</option>
-              ))}
-            </select>
+            <div>
+              <label className="mb-2 block text-sm font-medium text-neutral-700">Content Type</label>
+              <select
+                value={contentType}
+                onChange={(e) => setContentType(Number(e.target.value) as ContentType)}
+                className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2"
+              >
+                {CT_OPTIONS.map((ct) => (
+                  <option key={ct.value} value={ct.value}>{ct.label}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex items-center gap-4">
+              <label className="inline-flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={showInMenu} onChange={(e) => setShowInMenu(e.target.checked)} />
+                Menüde Göster
+              </label>
+              <label className="inline-flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={showInFooter} onChange={(e) => setShowInFooter(e.target.checked)} />
+                Footer’da Göster
+              </label>
+            </div>
           </div>
 
           <div className="rounded-xl border border-neutral-300">
@@ -320,7 +364,7 @@ function CreateModal({
   );
 }
 
-/* ---------------------- EDIT (PUT /api/SubSection/{id}) ---------------------- */
+/* ---------------------- EDIT (PATCH /api/SubSection/update) ---------------------- */
 function EditModal({
   onClose,
   row,
@@ -330,14 +374,10 @@ function EditModal({
   row: ContentRow;
   onUpdated: (updated: ApiSubSection) => void;
 }) {
-  // GET’te contentType string gelebilir; PUT için integer’a çeviriyoruz.
-  const initialTypeNumber =
-    typeof row.raw.contentType === 'number'
-      ? row.raw.contentType
-      : labelToEnum(String(row.raw.contentType));
-
   const [title, setTitle] = React.useState(row.raw.title ?? '');
-  const [contentType, setContentType] = React.useState<number>(initialTypeNumber);
+  const [contentType, setContentType] = React.useState<ContentType>(row.raw.content_type);
+  const [showInMenu, setShowInMenu] = React.useState<boolean>(!!row.raw.show_in_menu);
+  const [showInFooter, setShowInFooter] = React.useState<boolean>(!!row.raw.show_in_footer);
   const [content, setContent] = React.useState(row.raw.content ?? '');
   const [saving, setSaving] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
@@ -349,20 +389,19 @@ function EditModal({
       const payload = {
         id: Number(row.id),
         title,
-        contentType,        // PUT’ta integer
+        content_type: contentType,   // ← INT
+        show_in_menu: showInMenu,
+        show_in_footer: showInFooter,
         content,
-        isActive: true,
-        isDeleted: false,
       };
-      const r = await fetch(`${API_BASE}/api/SubSection/${row.id}`, {
-        method: 'PUT',
+      const r = await fetch('/yuksi/SubSection/update', {
+        method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
         cache: 'no-store',
       });
-      const t = await r.text();
-      const d = t ? JSON.parse(t) : null;
-      if (!r.ok) throw new Error(d?.message || d?.title || `HTTP ${r.status}`);
+      const d = await readJson(r);
+      if (!r.ok) throw new Error(pickMsg(d, `HTTP ${r.status}`));
 
       const updated: ApiSubSection = (d?.data ?? d) as ApiSubSection;
       onUpdated(updated);
@@ -390,11 +429,25 @@ function EditModal({
 
             <div>
               <label className="mb-2 block text-sm font-medium text-neutral-700">Content Type</label>
-              <select value={contentType} onChange={(e) => setContentType(Number(e.target.value))} className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2">
-                {CONTENT_TYPES.map(ct => <option key={ct.value} value={ct.value}>{ct.label}</option>)}
+              <select
+                value={contentType}
+                onChange={(e) => setContentType(Number(e.target.value) as ContentType)}
+                className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2"
+              >
+                {CT_OPTIONS.map((ct) => <option key={ct.value} value={ct.value}>{ct.label}</option>)}
               </select>
             </div>
-            <br />
+
+            <div className="flex items-center gap-4">
+              <label className="inline-flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={showInMenu} onChange={(e) => setShowInMenu(e.target.checked)} />
+                Menüde Göster
+              </label>
+              <label className="inline-flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={showInFooter} onChange={(e) => setShowInFooter(e.target.checked)} />
+                Footer’da Göster
+              </label>
+            </div>
           </div>
 
           <div className="rounded-xl border border-neutral-300">

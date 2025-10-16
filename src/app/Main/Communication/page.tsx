@@ -5,19 +5,17 @@ import React, { useState } from 'react';
 import Navbar from '@/components/UI/Navbar';
 import Link from 'next/link';
 import Footer from '@/components/UI/Footer';
-import { API_BASE } from '@/configs/api'; 
 
 type ContactPayload = {
-  fullName: string;
+  name: string;
   email: string;
   phone: string;
   subject: string;
   message: string;
 };
 
-
 export default function CommunicationPage() {
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<ContactPayload>({
     name: '',
     email: '',
     phone: '',
@@ -29,7 +27,9 @@ export default function CommunicationPage() {
   const [okMsg, setOkMsg] = useState<string | null>(null);
   const [errMsg, setErrMsg] = useState<string | null>(null);
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+  const handleChange = (
+    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
+  ) => {
     setFormData((p) => ({ ...p, [e.target.name]: e.target.value }));
   };
 
@@ -42,7 +42,7 @@ export default function CommunicationPage() {
     setErrMsg(null);
 
     const payload: ContactPayload = {
-      fullName: formData.name.trim(),
+      name: formData.name.trim(),
       email: formData.email.trim(),
       phone: formData.phone.trim(),
       subject: formData.subject.trim(),
@@ -50,7 +50,9 @@ export default function CommunicationPage() {
     };
 
     try {
-      const res = await fetch(`${API_BASE}/api/Contact/send`, {
+      // 🔗 Swagger: POST /api/Contact/send
+      // Proxy üzerinden git → /yuksi/Contact/send
+      const res = await fetch('/yuksi/Contact/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -59,14 +61,22 @@ export default function CommunicationPage() {
 
       const text = await res.text();
       let json: any = null;
-      try { json = text ? JSON.parse(text) : null; } catch { /* ignore parse error */ }
+      try { json = text ? JSON.parse(text) : null; } catch {}
 
       if (!res.ok) {
         const msg = json?.message || json?.title || `Gönderilemedi (HTTP ${res.status})`;
         throw new Error(msg);
       }
 
-      setOkMsg('Mesajınız başarıyla gönderildi. En kısa sürede dönüş yapacağız.');
+      // Bazı backendlere göre success/message dönebilir
+      const success = json?.success ?? true;
+      const msg =
+        json?.message ||
+        (success ? 'Mesajınız başarıyla gönderildi. En kısa sürede dönüş yapacağız.' : 'Mesaj gönderilemedi.');
+
+      if (!success) throw new Error(msg);
+
+      setOkMsg(msg);
       setFormData({ name: '', email: '', phone: '', subject: '', message: '' });
     } catch (err: any) {
       setErrMsg(err?.message || 'Mesaj gönderilirken bir hata oluştu.');
@@ -77,10 +87,8 @@ export default function CommunicationPage() {
 
   return (
     <div className="bg-white min-h-screen overflow-x-hidden">
-      {/* Navbar */}
       <Navbar />
 
-      {/* Page Banner */}
       <div className="page-banner-area py-24 bg-cover bg-center bg-gray-100">
         <div className="container mx-auto px-4">
           <div className="page-banner-content text-center">
@@ -98,25 +106,21 @@ export default function CommunicationPage() {
         </div>
       </div>
 
-      {/* Contact Form Section */}
       <section className="bg-white py-16">
         <div className="flex justify-center px-4">
           <div className="bg-gray-100 p-4 rounded-xl shadow-md w-full max-w-5xl">
             <h3 className="text-2xl font-semibold text-gray-700 mb-2">
-              Görüşlerinizi bizimle{" "}
+              Görüşlerinizi{' '}
               <a
                 href="mailto:info@yuksi.com.tr"
                 className="text-red-500 hover:underline"
                 title="E-posta gönder"
               >
                 info@yuksi.com.tr
-              </a>
-            </h3>
-            <h3 className="text-lg text-gray-700 mb-6">
-              üzerinden ya da iletişim formu ile görüşlerinizi bizimle paylaşabilirsiniz
+              </a>{' '}
+              veya aşağıdaki form ile bize iletebilirsiniz
             </h3>
 
-            {/* Status messages */}
             {okMsg && (
               <div className="mb-4 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-emerald-700">
                 {okMsg}
@@ -197,8 +201,9 @@ export default function CommunicationPage() {
               <button
                 type="submit"
                 disabled={isSubmitting}
-                className={`bg-orange-500 text-white py-3 px-6 rounded-md w-full font-medium text-lg hover:bg-orange-600 transition ${isSubmitting ? 'opacity-70 cursor-not-allowed' : ''
-                  }`}
+                className={`bg-orange-500 text-white py-3 px-6 rounded-md w-full font-medium text-lg hover:bg-orange-600 transition ${
+                  isSubmitting ? 'opacity-70 cursor-not-allowed' : ''
+                }`}
               >
                 {isSubmitting ? 'Gönderiliyor...' : 'Gönder'}
               </button>

@@ -3,26 +3,24 @@
 
 import * as React from 'react';
 import { useParams } from 'next/navigation';
-import { API_BASE } from '@/configs/api';
 
-enum ContactMessageStatus {
-  New = 1,
-  Read = 2,
-  Archived = 3,
-}
+/** Backend: GET /api/Contact/list?limit&offset
+ * Response:
+ * {
+ *   success: true,
+ *   message: "Mesajlar getirildi",
+ *   data: [{ id, name, email, phone, subject, message, created_at }]
+ * }
+ */
 
-type RawContact = {
+type ApiContact = {
   id: number;
-  fullName: string;
+  name: string;
   email: string;
   phone: string;
   subject: string;
   message: string;
-  status: string | number;
-  createdAt: string;
-  // soft-delete alanları (API dönebilir)
-  isActive?: boolean;
-  isDeleted?: boolean;
+  created_at: string; // ISO
 };
 
 type Row = {
@@ -32,7 +30,6 @@ type Row = {
   phone: string;
   subject: string;
   message: string;
-  status: 'new' | 'read' | 'archived';
   createdAt: Date | null;
 };
 
@@ -41,22 +38,6 @@ function fmtDate(d: Date | null) {
   try { return d.toLocaleString(); } catch { return '-'; }
 }
 
-function normalizeStatus(v: string | number | undefined | null): Row['status'] {
-  if (v == null) return 'new';
-  if (typeof v === 'string') {
-    const s = v.trim().toLowerCase();
-    if (s === 'read' || s === 'okundu') return 'read';
-    const n = Number(s);
-    if (Number.isFinite(n)) return normalizeStatus(n);
-    return 'new';
-  }
-  if (v === 3) return 'archived';
-  if (v === 2) return 'read';
-  if (v === 1) return 'read'; // eski: 1=read, 0=new
-  return 'new';
-}
-
-// DELETE yardımcıları
 async function readJson(res: Response) {
   const txt = await res.text();
   try { return txt ? JSON.parse(txt) : null; } catch { return null; }
@@ -67,35 +48,39 @@ function errMsgOf(j: any, fallback = 'İşlem başarısız.') {
 
 export default function UserEmailsPage() {
   const { role } = useParams<{ role: string }>();
+
   const [rows, setRows] = React.useState<Row[]>([]);
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
+  // basit sayfalama (swagger’da offset var)
+  const [limit, setLimit] = React.useState<number | ''>('');
+  const [offset, setOffset] = React.useState<number>(0);
+
   const [query, setQuery] = React.useState('');
-  const [statusFilter, setStatusFilter] = React.useState<'all' | 'new' | 'read' | 'archived'>('all');
   const [selected, setSelected] = React.useState<Row | null>(null);
 
   const load = React.useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${API_BASE}/api/Contact/messages`, { cache: 'no-store' });
+      const qs = new URLSearchParams();
+      if (limit !== '') qs.set('limit', String(limit));
+      qs.set('offset', String(offset));
+      // Proxy: /yuksi/Contact/list
+      const res = await fetch(`/yuksi/Contact/list?${qs.toString()}`, { cache: 'no-store' });
       const j = await readJson(res);
       if (!res.ok) throw new Error(errMsgOf(j, `HTTP ${res.status}`));
 
-      // Sadece aktif ve silinmemiş olanları al
-      const listAll: RawContact[] = Array.isArray(j?.data) ? j.data : (Array.isArray(j) ? j : []);
-      const list = listAll.filter(it => (it.isActive ?? true) === true && (it.isDeleted ?? false) === false);
-
+      const list: ApiContact[] = Array.isArray(j?.data) ? j.data : [];
       const mapped: Row[] = list.map((c) => ({
         id: String(c.id),
-        fullName: c.fullName ?? '-',
+        fullName: c.name ?? '-',
         email: c.email ?? '-',
         phone: c.phone ?? '-',
         subject: c.subject ?? '-',
         message: c.message ?? '',
-        status: normalizeStatus(c.status),
-        createdAt: c.createdAt ? new Date(c.createdAt) : null,
+        createdAt: c.created_at ? new Date(c.created_at) : null,
       }));
 
       setRows(mapped);
@@ -104,113 +89,61 @@ export default function UserEmailsPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [limit, offset]);
 
   React.useEffect(() => { load(); }, [load]);
 
   const filtered = React.useMemo(() => {
     const q = query.trim().toLowerCase();
-    return rows.filter((r) => {
-      const byText =
-        !q ||
-        [r.fullName, r.email, r.phone, r.subject, r.message].join(' ').toLowerCase().includes(q);
-      const byStatus = statusFilter === 'all' || r.status === statusFilter;
-      return byText && byStatus;
-    });
-  }, [rows, query, statusFilter]);
-
-  async function markAsRead(id: string) {
-    const prev = rows;
-    const already = rows.find(r => r.id === id)?.status === 'read';
-    if (already) return;
-
-    setRows((p) => p.map(r => r.id === id ? { ...r, status: 'read' } : r));
-
-    try {
-      const res = await fetch(`${API_BASE}/api/Contact/update-status`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: Number(id), status: ContactMessageStatus.Read }),
-      });
-      if (!res.ok) {
-        setRows(prev);
-        const j = await readJson(res);
-        throw new Error(errMsgOf(j, 'İşaretlenemedi.'));
-      }
-      await load();
-    } catch (err) {
-      alert((err as Error).message || 'İşaretlenemedi.');
-    }
-  }
-
-  // === SİL (soft delete) ===
-  async function removeRemote(id: string) {
-    if (!confirm('Bu mesajı silmek (arşivlemek) istiyor musun?')) return;
-
-    const prev = rows;
-    // optimistic: listeden kaldır
-    setRows(p => p.filter(r => r.id !== id));
-
-    try {
-      // 1) Body ile deneyelim (isActive:false, isDeleted:true)
-      let res = await fetch(`${API_BASE}/api/Contact/${Number(id)}`, {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ isActive: false, isDeleted: true }),
-      });
-
-      // 400/415 vs gelirse gövdesiz yeniden dene
-      if (!res.ok && (res.status === 400 || res.status === 415 || res.status === 405)) {
-        res = await fetch(`${API_BASE}/api/Contact/${Number(id)}`, { method: 'DELETE' });
-      }
-
-      if (!res.ok) {
-        setRows(prev); // geri al
-        const j = await readJson(res);
-        throw new Error(errMsgOf(j, 'Silinemedi.'));
-      }
-
-      // başarı: yeniden yükle ve yalnızca aktif/silinmemişleri göster
-      await load();
-    } catch (e: any) {
-      alert(e?.message || 'Silinemedi.');
-    }
-  }
+    if (!q) return rows;
+    return rows.filter((r) =>
+      [r.fullName, r.email, r.phone, r.subject, r.message]
+        .join(' ')
+        .toLowerCase()
+        .includes(q)
+    );
+  }, [rows, query]);
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold tracking-tight">İletişim Mesajları</h1>
-        <button
-          onClick={load}
-          className="rounded-xl bg-neutral-200 px-4 py-2 text-sm font-medium text-neutral-800 hover:bg-neutral-300"
-        >
-          Yenile
-        </button>
+        <div className="flex items-center gap-2">
+          <label className="text-sm text-neutral-600">Limit</label>
+          <input
+            type="number"
+            min={1}
+            value={limit}
+            onChange={(e) => setLimit(e.target.value === '' ? '' : Number(e.target.value))}
+            className="w-24 rounded-lg border border-neutral-300 bg-neutral-100 px-2 py-1.5 text-sm"
+            placeholder="-"
+          />
+          <label className="text-sm text-neutral-600">Offset</label>
+          <input
+            type="number"
+            min={0}
+            value={offset}
+            onChange={(e) => setOffset(Number(e.target.value) || 0)}
+            className="w-24 rounded-lg border border-neutral-300 bg-neutral-100 px-2 py-1.5 text-sm"
+          />
+          <button
+            onClick={load}
+            className="rounded-xl bg-neutral-200 px-4 py-2 text-sm font-medium text-neutral-800 hover:bg-neutral-300"
+          >
+            Yenile
+          </button>
+        </div>
       </div>
 
       <section className="rounded-2xl border border-neutral-200/70 bg-white shadow-sm">
         <div className="grid gap-3 p-4 sm:grid-cols-3">
-          <div className="sm:col-span-2">
+          <div className="sm:col-span-3">
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Ara: ad, e-posta, konu, mesaj…"
               className="w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 text-neutral-800 outline-none ring-2 ring-transparent transition placeholder:text-neutral-400 focus:bg-white focus:ring-sky-200"
             />
-          </div>
-          <div className="flex items-center gap-2 justify-end">
-            <label className="text-sm text-neutral-600">Durum</label>
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value as any)}
-              className="rounded-lg border border-neutral-300 bg-neutral-100 px-3 py-2 text-sm"
-            >
-              <option value="all">Tümü</option>
-              <option value="new">Yeni</option>
-              <option value="read">Okundu</option>
-              <option value="archived">Arşiv</option>
-            </select>
           </div>
         </div>
 
@@ -225,14 +158,13 @@ export default function UserEmailsPage() {
                 <th className="px-4 py-3 font-medium w-[200px]">E-posta</th>
                 <th className="px-4 py-3 font-medium w-[140px]">Telefon</th>
                 <th className="px-4 py-3 font-medium w-[180px]">Tarih</th>
-                <th className="px-4 py-3 font-medium w-[110px]">Durum</th>
-                <th className="px-4 py-3 font-medium w-[220px]"></th>
+                <th className="px-4 py-3 font-medium w-[160px]"></th>
               </tr>
             </thead>
             <tbody>
               {loading && (
                 <tr>
-                  <td colSpan={7} className="px-6 py-10 text-center text-sm text-neutral-500">
+                  <td colSpan={6} className="px-6 py-10 text-center text-sm text-neutral-500">
                     Yükleniyor…
                   </td>
                 </tr>
@@ -251,36 +183,12 @@ export default function UserEmailsPage() {
                   <td className="px-4 py-3 text-neutral-800">{r.phone}</td>
                   <td className="px-4 py-3 text-neutral-800">{fmtDate(r.createdAt)}</td>
                   <td className="px-4 py-3">
-                    <span
-                      className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold
-                        ${r.status === 'new' ? 'bg-amber-100 text-amber-800'
-                          : r.status === 'read' ? 'bg-emerald-100 text-emerald-700'
-                          : 'bg-neutral-200 text-neutral-700'}`}
-                    >
-                      {r.status === 'new' ? 'Yeni' : r.status === 'read' ? 'Okundu' : 'Arşiv'}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">
                     <div className="flex items-center justify-end gap-2">
                       <button
                         onClick={() => setSelected(r)}
                         className="rounded-lg bg-sky-500 px-3 py-1.5 text-sm font-semibold text-white shadow hover:bg-sky-600"
                       >
                         Görüntüle
-                      </button>
-                      <button
-                        onClick={() => markAsRead(r.id)}
-                        disabled={r.status !== 'new'}
-                        className="rounded-lg bg-indigo-500 px-3 py-1.5 text-sm font-semibold text-white shadow
-                                   hover:bg-indigo-600 disabled:opacity-60 disabled:cursor-not-allowed"
-                      >
-                        {r.status === 'read' ? 'Okundu' : 'Okundu İşaretle'}
-                      </button>
-                      <button
-                        onClick={() => removeRemote(r.id)}
-                        className="rounded-lg bg-rose-500 px-3 py-1.5 text-sm font-semibold text-white shadow hover:bg-rose-600"
-                      >
-                        Sil
                       </button>
                     </div>
                   </td>
@@ -289,7 +197,7 @@ export default function UserEmailsPage() {
 
               {!loading && filtered.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-6 py-12 text-center text-sm text-neutral-500">
+                  <td colSpan={6} className="px-6 py-12 text-center text-sm text-neutral-500">
                     Kayıt yok.
                   </td>
                 </tr>

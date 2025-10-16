@@ -2,7 +2,6 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { API_BASE } from '@/configs/api'; 
 
 
 export default function Header({
@@ -46,15 +45,10 @@ export default function Header({
       localStorage.removeItem("auth_token");
       localStorage.removeItem("refresh_token");
 
-      // legacy keys
-      localStorage.removeItem("YUKSI_TOKEN");
-      localStorage.removeItem("YUKSI_ROLE");
-
       sessionStorage.removeItem("auth_token");
-      sessionStorage.removeItem("YUKSI_TOKEN");
-      sessionStorage.removeItem("YUKSI_ROLE");
 
       clearCookie("auth_token");
+      clearCookie("refresh_token");
     } catch {}
   };
 
@@ -63,16 +57,25 @@ export default function Header({
     setLoggingOut(true);
 
     try {
-      // refreshToken'ı localStorage'dan ya da cookie'den al
       const refreshToken =
         localStorage.getItem("refresh_token") || getCookie("refresh_token") || "";
 
-      // endpoint'e bildir (refreshToken zorunlu görünüyor)
-      await fetch(`${API_BASE}/api/Auth/logout`, {
+      // elde JWT varsa Authorization header ekleyelim
+      const bearer =
+        localStorage.getItem("auth_token") ||
+        sessionStorage.getItem("auth_token") ||
+        "";
+
+      const headers: HeadersInit = { "Content-Type": "application/json" };
+      if (bearer) (headers as any).Authorization = `Bearer ${bearer}`;
+
+      await fetch("https://www.yuksi.dev/api/Auth/logout", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ refreshToken }),
-      }).catch(() => {}); // ağ hatası olsa da client’ı temizleyeceğiz
+        headers,
+        body: JSON.stringify({ refreshToken }), // ← swagger’daki body
+      }).catch(() => {
+        /* ağ hatası olsa bile aşağıda temizleyeceğiz */
+      });
     } finally {
       clientCleanup();
       window.location.href = "/"; // ana sayfa
@@ -91,6 +94,7 @@ export default function Header({
 
         <div className="relative" ref={menuRef}>
           <button
+          type="button" 
             onClick={() => setOpen((s) => !s)}
             className="flex items-center gap-3 rounded-lg px-2 py-1 hover:bg-white/10"
             title={userLabel}
@@ -102,6 +106,7 @@ export default function Header({
           {open && (
             <div className="absolute right-0 mt-2 w-44 rounded-xl border border-neutral-200 bg-white text-neutral-800 shadow-lg">
               <button
+              type="button"
                 onClick={handleLogout}
                 disabled={loggingOut}
                 className="w-full px-3 py-2 text-left rounded-t-xl hover:bg-neutral-50 disabled:opacity-60"

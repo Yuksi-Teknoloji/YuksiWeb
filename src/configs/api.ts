@@ -4,13 +4,13 @@ const stripSlash = (u: string) => u.replace(/\/+$/, "");
 
 // ENV KULLANMADAN sabit(ler)
 // İstersen tek satırda:
-export const API_BASE = stripSlash("http://40.90.226.14:8080");
+export const API_BASE = stripSlash("https://www.yuksi.dev/api");
 
 // İsteğe bağlı: ortama göre seç (yine .env yok)
 const MAP: Record<"development" | "production" | "test", string> = {
-  development: "http://40.90.226.14:8080",
-  production:  "http://40.90.226.14:8080",
-  test:        "http://40.90.226.14:8080",
+  development: "https://www.yuksi.dev/api",
+  production:  "https://www.yuksi.dev/api",
+  test:        "https://www.yuksi.dev/api",
 };
 export const API_BASE_BY_ENV = stripSlash(MAP[process.env.NODE_ENV as keyof typeof MAP] ?? MAP.development);
 

@@ -84,7 +84,7 @@ export default function LoginPage() {
 
     try {
       // Doğrudan backend
-      const res = await fetch("http://40.90.226.14:8080/api/Auth/login", {
+      const res = await fetch('/yuksi/Auth/login', {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),

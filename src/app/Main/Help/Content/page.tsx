@@ -2,31 +2,21 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { API_BASE } from '@/configs/api'; 
 
 type ApiSubSection = {
   id: number;
   title: string;
-  contentType: string | number;
-  showInMenu: boolean;
-  showInFooter: boolean;
+  content_type: string | number; // GET: label ("Destek") gelebilir, bazen sayı da olabilir
+  show_in_menu: boolean;
+  show_in_footer: boolean;
   content: string;
-  isActive?: boolean;
-  isDeleted?: boolean;
+  created_at?: string;
+  updated_at?: string;
 };
 
 type Faq = { question: string; answer: string };
 
-const DESTEK_TYPE = 'Destek';
-
-// GET’te contentType string gelebilir —> normalize et
-const normalizeType = (v: string | number): number => {
-  if (typeof v === 'number') return v;
-  const s = String(v).trim().toLowerCase();
-  if (s === 'destek') return 1;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : 1;
-};
+const DESTEK_LABEL = 'Destek';
 
 export default function HelpContentPage() {
   const [faqs, setFaqs] = useState<Faq[]>([]);
@@ -37,36 +27,33 @@ export default function HelpContentPage() {
   useEffect(() => {
     let alive = true;
 
-    async function fetchDestekOnly(): Promise<ApiSubSection[]> {
-      // tümünü çekip client’ta filtrele
-      const rAll = await fetch(`${API_BASE}/api/SubSection`, { cache: 'no-store' });
-      const tAll = await rAll.text();
-      const jAll = tAll ? JSON.parse(tAll) : null;
-      if (!rAll.ok) throw new Error(jAll?.message || jAll?.title || `HTTP ${rAll.status}`);
-
-      const all: ApiSubSection[] = Array.isArray(jAll?.data) ? jAll.data : [];
-
-      // 1) tür: Destek
-      // 2) sadece aktif ve silinmemiş
-      return all.filter((it) => {
-        const typeOk =
-          typeof it.contentType === 'number'
-            ? it.contentType === 1
-            : String(it.contentType).trim().toLowerCase() === DESTEK_TYPE.toLowerCase();
-        const flagsOk = it.isActive === true && it.isDeleted === false;
-        return typeOk && flagsOk;
-      });
-    }
-
     (async () => {
       setLoading(true);
       setErr(null);
       try {
-        const onlyHelp = await fetchDestekOnly();
+        // CORS sorununa düşmemek için proxy kullan
+        const res = await fetch('/yuksi/SubSection/all?offset=0', { cache: 'no-store' });
+        const text = await res.text();
+        const json = text ? JSON.parse(text) : null;
+        if (!res.ok) throw new Error(json?.message || json?.title || `HTTP ${res.status}`);
+
+        const all: ApiSubSection[] = Array.isArray(json?.data) ? json.data : [];
+
+        // Sadece "Destek" tipindekiler (label ya da 1 sayısı gelebilir)
+        const onlyHelp = all.filter((it) => {
+          const v = it.content_type;
+          if (typeof v === 'number') return v === 1;
+          return String(v).trim().toLowerCase() === DESTEK_LABEL.toLowerCase();
+        });
+
+        // (opsiyonel) en yeni üstte
+        onlyHelp.sort((a, b) => new Date(b.created_at ?? 0).getTime() - new Date(a.created_at ?? 0).getTime());
+
         const mapped: Faq[] = onlyHelp.map((it) => ({
           question: (it.title ?? '').trim() || '—',
           answer: (it.content ?? '').trim() || '—',
         }));
+
         if (!alive) return;
         setFaqs(mapped);
         setOpenIndex(mapped.length ? 0 : null);
@@ -80,9 +67,7 @@ export default function HelpContentPage() {
       }
     })();
 
-    return () => {
-      alive = false;
-    };
+    return () => { alive = false; };
   }, []);
 
   const hasData = useMemo(() => faqs.length > 0, [faqs]);
@@ -121,16 +106,18 @@ export default function HelpContentPage() {
               {faqs.map((faq, index) => {
                 const open = openIndex === index;
                 return (
-                  <div key={index} className="overflow-hidden rounded-xl border border-orange-500 shadow-sm">
+                  <div key={`${index}-${faq.question}`} className="overflow-hidden rounded-xl border border-orange-500 shadow-sm">
                     <button
                       onClick={() => toggleFAQ(index)}
-                      className={`flex w-full items-center justify-between px-5 sm:px-6 py-4 sm:py-3 text-left text-base sm:text-lg font-semibold transition ${open ? 'bg-orange-600 text-white' : 'bg-orange-500 text-white'
-                        }`}
+                      className={`flex w-full items-center justify-between px-5 sm:px-6 py-4 sm:py-3 text-left text-base sm:text-lg font-semibold transition ${
+                        open ? 'bg-orange-600 text-white' : 'bg-orange-500 text-white'
+                      }`}
                     >
                       <span className="pr-4">{faq.question}</span>
                       <span
-                        className={`ml-3 inline-flex h-8 w-8 items-center justify-center rounded-md border transition ${open ? 'border-white/40 bg-white/10' : 'border-white/30 bg-white/10'
-                          }`}
+                        className={`ml-3 inline-flex h-8 w-8 items-center justify-center rounded-md border transition ${
+                          open ? 'border-white/40 bg-white/10' : 'border-white/30 bg-white/10'
+                        }`}
                         aria-hidden
                       >
                         {open ? '−' : '+'}

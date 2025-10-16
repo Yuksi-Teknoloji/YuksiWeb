@@ -1,5 +1,4 @@
-//src/app/About/page.tsx
-
+//src/app/Main/About/page.tsx
 
 import Link from "next/link";
 import Navbar from "../../../components/UI/Navbar"; 

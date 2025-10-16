@@ -1,3 +1,4 @@
+// src/components/subsect/MiniRTE.tsx
 'use client';
 
 import React from 'react';

@@ -1,89 +1,105 @@
 // src/lib/subsection.ts
-import { API_BASE } from '@/configs/api';
+// Yeni API: snake_case alanlar ve content_type = number | string (label gelebilir)
 
 export type ApiSubSection = {
   id: number;
   title: string;
-  contentType: string | number; // GET: string, PUT: number
-  showInMenu: boolean;
-  showInFooter: boolean;
+  content_type: number | string;
+  show_in_menu?: boolean;
+  show_in_footer?: boolean;
   content: string;
-  isActive: boolean;
-  isDeleted: boolean;
+  created_at?: string;
+  updated_at?: string;
 };
 
+// Hem enum etiketleri (kod içi) hem de ekranda görülen Türkçe adlar:
 export const CONTENT_TYPES = [
-  { value: 1, label: 'Destek' },
-  { value: 2, label: 'Hakkimizda' },
-  { value: 3, label: 'Iletisim' },
-  { value: 4, label: 'GizlilikPolitikasi' },
-  { value: 5, label: 'KullanimKosullari' },
-  { value: 6, label: 'KuryeGizlilikSözlesmesi' },
-  { value: 7, label: 'KuryeTasiyiciSözlesmesi' },
+  { value: 1, label: 'Destek',                display: 'Destek' },
+  { value: 2, label: 'Hakkimizda',            display: 'Hakkımızda' },
+  { value: 3, label: 'Iletisim',              display: 'İletişim' },
+  { value: 4, label: 'GizlilikPolitikasi',    display: 'Gizlilik Politikası' },
+  { value: 5, label: 'KullanimKosullari',     display: 'Kullanım Koşulları' },
+  { value: 6, label: 'KuryeGizlilikSözlesmesi', display: 'Kurye Gizlilik Sözleşmesi' },
+  { value: 7, label: 'KuryeTasiyiciSözlesmesi', display: 'Kurye Taşıyıcı Sözleşmesi' },
 ] as const;
 
+// Türkçe karakter, aksan ve boşlukları eşitle
+function norm(s: string) {
+  return String(s || '')
+    .trim()
+    .toLowerCase()
+    // unicode normalize: İ/ı/ş/ğ/ç/ö/ü vs.
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/ı/g, 'i').replace(/İ/g, 'i')
+    .replace(/\s+/g, '')        // boşlukları at
+    .replace(/[^a-z0-9]/g, ''); // işaretleri at
+}
+
 export function enumToLabel(v: number) {
-  return CONTENT_TYPES.find((x) => x.value === v)?.label ?? 'Destek';
+  // Tercihen ekranda görünür Türkçe adı döndür
+  return CONTENT_TYPES.find(x => x.value === v)?.display ?? `İçerik #${v}`;
 }
 
 export function labelToEnum(lbl: string) {
-  return (
-    CONTENT_TYPES.find(
-      (x) => x.label.toLowerCase() === String(lbl).trim().toLowerCase()
-    )?.value ?? 1
+  const n = norm(lbl);
+  const hit = CONTENT_TYPES.find(
+    x => norm(x.label) === n || norm(x.display) === n
   );
+  return hit?.value ?? 1;
 }
 
-/**
- * Tek bir alt bölüm döndürür.
- * - contentType eşleştirilir (string gelebileceği için labelToEnum ile normalize edilir)
- * - Yalnızca isActive:true ve isDeleted:false olan ilk uygun kayıt döndürülür
- */
-export async function fetchSubSectionByType(typeValue: number): Promise<ApiSubSection | null> {
-  const res = await fetch(`${API_BASE}/api/SubSection`, { cache: 'no-store' });
-  const text = await res.text();
-  const json = text ? JSON.parse(text) : null;
+function toInt(v: unknown): number | null {
+  if (typeof v === 'number' && Number.isFinite(v)) return v;
+  const n = Number(String(v ?? '').trim());
+  return Number.isFinite(n) ? n : null;
+}
 
-  if (!res.ok) {
-    const msg = json?.message || json?.title || `HTTP ${res.status}`;
-    throw new Error(msg);
-  }
+// ---- FETCH ----
+import { API_BASE } from '@/configs/api'; // ör: https://www.yuksi.dev/api
+
+async function readJson(res: Response) {
+  const t = await res.text();
+  try { return t ? JSON.parse(t) : null; } catch { return null; }
+}
+const pickMsg = (d: any, fb: string) => d?.message || d?.title || d?.detail || d?.error?.message || fb;
+
+export async function fetchSubSectionByType(typeValue: number): Promise<ApiSubSection | null> {
+  // ✅ mutlak URL kullan
+  const res = await fetch(`${API_BASE}/SubSection/all?offset=0`, {
+    cache: 'no-store',
+    headers: { Accept: 'application/json' },
+    // @ts-ignore
+    next: { revalidate: 0 },
+  });
+  const json = await readJson(res);
+  if (!res.ok) throw new Error(pickMsg(json, `HTTP ${res.status}`));
 
   const list: ApiSubSection[] = Array.isArray(json?.data) ? json.data : [];
 
-  // 1) contentType eşleştir
-  const byType = list.filter((it) => {
-    const asNum =
-      typeof it.contentType === 'number' ? it.contentType : labelToEnum(String(it.contentType));
-    return asNum === typeValue;
-  });
+  // content_type -> önce int, değilse labelToEnum ile sayıya dönüştür
+  const found = list.find((it) => {
+    const raw = (it as any).content_type ?? (it as any).contentType;
+    const ct = toInt(raw) ?? labelToEnum(String(raw));
+    return ct === typeValue;
+  }) ?? null;
 
-  // 2) sadece aktif ve silinmemiş olanlar
-  const filtered = byType.filter((it) => it.isActive === true && it.isDeleted === false);
-
-  // 3) ilk uygun kayıt
-  return filtered[0] ?? null;
+  return found;
 }
 
-/**
- * Çoklu sonuç gerekir ise:
- * - contentType eşleşen VE isActive:true & isDeleted:false olanların listesini döndürür
- */
 export async function fetchActiveSubSectionsByType(typeValue: number): Promise<ApiSubSection[]> {
-  const res = await fetch(`${API_BASE}/api/SubSection`, { cache: 'no-store' });
-  const text = await res.text();
-  const json = text ? JSON.parse(text) : null;
-
-  if (!res.ok) {
-    const msg = json?.message || json?.title || `HTTP ${res.status}`;
-    throw new Error(msg);
-  }
-
+  const res = await fetch(`${API_BASE}/SubSection/all?offset=0`, {
+    cache: 'no-store',
+    headers: { Accept: 'application/json' },
+    // @ts-ignore
+    next: { revalidate: 0 },
+  });
+  const json = await readJson(res);
+  if (!res.ok) throw new Error(pickMsg(json, `HTTP ${res.status}`));
   const list: ApiSubSection[] = Array.isArray(json?.data) ? json.data : [];
 
   return list.filter((it) => {
-    const asNum =
-      typeof it.contentType === 'number' ? it.contentType : labelToEnum(String(it.contentType));
-    return asNum === typeValue && it.isActive === true && it.isDeleted === false;
+    const raw = (it as any).content_type ?? (it as any).contentType;
+    const ct = toInt(raw) ?? labelToEnum(String(raw));
+    return ct === typeValue;
   });
 }
