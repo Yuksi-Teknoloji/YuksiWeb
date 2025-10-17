@@ -64,10 +64,26 @@ function extractToken(raw: any): string | null {
 }
 
 function persistToken(token: string, exp?: number) {
-  try { localStorage.setItem("auth_token", token); } catch { }
-  const attrs = ["Path=/", "SameSite=Lax"];
-  if (exp) attrs.push(`Expires=${new Date(exp * 1000).toUTCString()}`);
-  document.cookie = `auth_token=${token}; ${attrs.join("; ")}`;
+  // localStorage (opsiyonel)
+  try { localStorage.setItem('auth_token', token); } catch {}
+
+  // client-side cookie (proxy bunu da okuyabilir)
+  const parts = [
+    `auth_token=${token}`,
+    'Path=/',
+    'SameSite=Lax',
+  ];
+  if (typeof window !== 'undefined' && location.protocol === 'https:') parts.push('Secure');
+  if (exp) parts.push(`Expires=${new Date(exp * 1000).toUTCString()}`);
+  document.cookie = parts.join('; ');
+
+  // (opsiyonel ama önerilir) httpOnly cookie’yi server’dan da set et
+  // bu, XSS’e karşı daha güvenli; aşağıdaki /api/auth/set-cookie route’u eklemen gerekiyor
+  fetch('/api/auth/set-cookie', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token, exp }),
+  }).catch(() => {});
 }
 
 export default function LoginPage() {

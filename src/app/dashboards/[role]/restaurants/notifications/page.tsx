@@ -3,118 +3,121 @@
 
 import * as React from 'react';
 import { useParams } from 'next/navigation';
+import { getAuthToken } from '@/utils/auth'; // önceki mesajda eklediğimiz helper
+// istersen API_BASE de kullanabilirsin; proxy ile CORS sorunsuz olsun diye /yuksi kullandım.
 
-/* ====================== Types (English) ====================== */
 type NotificationType = 'system' | 'order' | 'payout' | 'marketing';
 type NotificationStatus = 'unread' | 'read';
 
 type NotificationItem = {
   id: string;
   title: string;
-  body: string;
-  type: NotificationType;
+  bodyHtml: string;       // ← HTML tutuyoruz
+  type: NotificationType; // API bildirimleri “duyuru” gibi -> marketing’a map’liyoruz
   status: NotificationStatus;
   createdAt: Date;
-  meta?: {
-    orderId?: string;
-    amount?: number;
-  };
+  meta?: { orderId?: string; amount?: number };
 };
 
-/* ====================== Helpers ====================== */
-function fmtDate(d: Date) {
-  return d.toLocaleString('tr-TR');
-}
+// ---- helpers
+const fmtDate = (d: Date) => d.toLocaleString('tr-TR');
+const typeLabel = (t: NotificationType) =>
+  t === 'order' ? 'Sipariş' :
+  t === 'payout' ? 'Ödeme' :
+  t === 'system' ? 'Sistem' : 'Duyuru';
 
-function typeLabel(t: NotificationType) {
-  switch (t) {
-    case 'system': return 'Sistem';
-    case 'order': return 'Sipariş';
-    case 'payout': return 'Ödeme';
-    case 'marketing': return 'Duyuru';
-  }
-}
+const statusBadgeClasses = (s: NotificationStatus) =>
+  s === 'unread' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-700';
 
-function statusBadgeClasses(s: NotificationStatus) {
-  return s === 'unread'
-    ? 'bg-amber-100 text-amber-800'
-    : 'bg-emerald-100 text-emerald-700';
-}
+const stripHtml = (html: string) => {
+  if (!html) return '';
+  if (typeof window === 'undefined') return html.replace(/<[^>]*>/g, ' ');
+  const tmp = document.createElement('div');
+  tmp.innerHTML = html;
+  return (tmp.textContent || tmp.innerText || '').trim();
+};
 
-/* ====================== Demo Seed ====================== */
-const DEMO: NotificationItem[] = [
-  {
-    id: crypto.randomUUID(),
-    title: 'Yeni siparişiniz var',
-    body: 'Sipariş #10234 oluşturuldu. Hazırlamaya başlayın.',
-    type: 'order',
-    status: 'unread',
-    createdAt: new Date(Date.now() - 1000 * 60 * 10),
-    meta: { orderId: '10234' },
-  },
-  {
-    id: crypto.randomUUID(),
-    title: 'Haftalık ödeme aktarıldı',
-    body: '₺12.450 tutarındaki ödeme hesabınıza gönderildi.',
-    type: 'payout',
-    status: 'read',
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 8),
-    meta: { amount: 12450 },
-  },
-  {
-    id: crypto.randomUUID(),
-    title: 'Planlı bakım bildirimi',
-    body: 'Bu gece 02:00–03:00 arası kısa süreli kesinti olabilir.',
-    type: 'system',
-    status: 'unread',
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 20),
-  },
-  {
-    id: crypto.randomUUID(),
-    title: 'Yeni özellik: Menü içe aktarma',
-    body: 'Menünüzü Excel ile toplu içe aktarabilirsiniz.',
-    type: 'marketing',
-    status: 'read',
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 30),
-  },
-  {
-    id: crypto.randomUUID(),
-    title: 'Sipariş gecikme uyarısı',
-    body: 'Sipariş #10212 hedef süreyi aştı. Kurye ile iletişime geçin.',
-    type: 'order',
-    status: 'unread',
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 36),
-    meta: { orderId: '10212' },
-  },
-  {
-    id: crypto.randomUUID(),
-    title: 'Vergi numarası güncellemesi',
-    body: 'Hesap profilinizde yeni vergi numarası kaydedildi.',
-    type: 'system',
-    status: 'read',
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 48),
-  },
-];
+// ---- API tipleri
+type ApiNotification = {
+  id: number;
+  type: 'bulk' | 'single';          // bizde gösterimde fark etmiyor
+  target_email: string | null;
+  user_type: 'all' | 'restaurant' | 'courier' | 'customer';
+  subject: string;
+  message: string;                  // HTML gelebilir
+  created_at: string;               // ISO
+};
 
-/* ====================== Page ====================== */
 export default function RestaurantNotificationsPage() {
   const { role } = useParams<{ role: string }>();
 
-  const [items, setItems] = React.useState<NotificationItem[]>(DEMO);
+  const [items, setItems] = React.useState<NotificationItem[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState<string | null>(null);
+
   const [query, setQuery] = React.useState('');
   const [typeFilter, setTypeFilter] = React.useState<'all' | NotificationType>('all');
   const [statusFilter, setStatusFilter] = React.useState<'all' | NotificationStatus>('all');
   const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set());
   const [detail, setDetail] = React.useState<NotificationItem | null>(null);
 
-  // simple client-side pagination (demo)
   const [page, setPage] = React.useState(1);
   const pageSize = 6;
 
+  // ---- fetch list (token role’una göre backend filtreli döner)
+  React.useEffect(() => {
+    let alive = true;
+    (async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const token = getAuthToken();
+        if (!token) throw new Error('Oturum bulunamadı. Lütfen giriş yapınız.');
+
+        const res = await fetch('/yuksi/Notification/list', {
+          headers: {
+            'Accept': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
+          cache: 'no-store',
+        });
+
+        const txt = await res.text();
+        let json: any = null;
+        try { json = txt ? JSON.parse(txt) : null; } catch {}
+
+        if (!res.ok || json?.success === false) {
+          const msg = json?.message || `Liste alınamadı (HTTP ${res.status})`;
+          throw new Error(msg);
+        }
+
+        const arr: ApiNotification[] = Array.isArray(json?.data) ? json.data : [];
+        const mapped: NotificationItem[] = arr.map((n) => ({
+          id: String(n.id),
+          title: (n.subject ?? '').trim() || '—',
+          bodyHtml: String(n.message ?? ''),
+          type: 'marketing',                 // şu an tüm bildirimler duyuru/doğrudan mesaj gibi
+          status: 'unread',                  // backend ayrı status dönmüyor → başlangıçta unread
+          createdAt: new Date(n.created_at),
+        }));
+
+        if (!alive) return;
+        setItems(mapped);
+      } catch (e: any) {
+        if (!alive) return;
+        setError(e?.message || 'Bildirimler alınamadı.');
+      } finally {
+        if (alive) setLoading(false);
+      }
+    })();
+    return () => { alive = false; };
+  }, [role]);
+
+  // ---- filters + paging
   const filtered = React.useMemo(() => {
     const q = query.trim().toLowerCase();
     return items.filter((n) => {
-      const byText = !q || (n.title + ' ' + n.body).toLowerCase().includes(q);
+      const byText = !q || (n.title + ' ' + stripHtml(n.bodyHtml)).toLowerCase().includes(q);
       const byType = typeFilter === 'all' || n.type === typeFilter;
       const byStatus = statusFilter === 'all' || n.status === statusFilter;
       return byText && byType && byStatus;
@@ -131,7 +134,7 @@ export default function RestaurantNotificationsPage() {
     if (page > pageCount) setPage(1);
   }, [pageCount, page]);
 
-  /* ---------- Actions ---------- */
+  // ---- local actions (şimdilik backend’e yazmıyoruz)
   function toggleSelect(id: string) {
     setSelectedIds(prev => {
       const next = new Set(prev);
@@ -143,11 +146,8 @@ export default function RestaurantNotificationsPage() {
     setSelectedIds(prev => {
       const allSelected = currentPageIds.every(id => prev.has(id));
       const next = new Set(prev);
-      if (allSelected) {
-        currentPageIds.forEach(id => next.delete(id));
-      } else {
-        currentPageIds.forEach(id => next.add(id));
-      }
+      (allSelected ? currentPageIds : currentPageIds.filter(id => !prev.has(id)))
+        .forEach(id => allSelected ? next.delete(id) : next.add(id));
       return next;
     });
   }
@@ -167,15 +167,11 @@ export default function RestaurantNotificationsPage() {
     setSelectedIds(new Set());
   }
   function clearFilters() {
-    setQuery('');
-    setTypeFilter('all');
-    setStatusFilter('all');
-    setPage(1);
+    setQuery(''); setTypeFilter('all'); setStatusFilter('all'); setPage(1);
   }
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold tracking-tight">Bildirimler</h1>
         <div className="flex items-center gap-2">
@@ -229,7 +225,8 @@ export default function RestaurantNotificationsPage() {
 
         <div className="flex items-center justify-between gap-3 border-t px-4 py-3">
           <div className="text-xs text-neutral-500">
-            Toplam <strong>{filtered.length}</strong> bildirim
+            {loading ? 'Yükleniyor…' : error ? <span className="text-rose-600">{error}</span> :
+              <>Toplam <strong>{filtered.length}</strong> bildirim</>}
           </div>
           <button
             onClick={clearFilters}
@@ -262,15 +259,19 @@ export default function RestaurantNotificationsPage() {
               </tr>
             </thead>
             <tbody>
-              {paged.length === 0 && (
+              {loading && (
                 <tr>
-                  <td colSpan={6} className="px-6 py-10 text-center text-sm text-neutral-500">
-                    Kayıt yok.
-                  </td>
+                  <td colSpan={6} className="px-6 py-10 text-center text-neutral-500">Yükleniyor…</td>
                 </tr>
               )}
 
-              {paged.map((n) => (
+              {!loading && !error && paged.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="px-6 py-10 text-center text-neutral-500">Kayıt yok.</td>
+                </tr>
+              )}
+
+              {!loading && !error && paged.map((n) => (
                 <tr key={n.id} className="border-t border-neutral-200/70 hover:bg-neutral-50">
                   <td className="px-4 py-3 align-top">
                     <input
@@ -282,14 +283,9 @@ export default function RestaurantNotificationsPage() {
                   </td>
                   <td className="px-4 py-3 align-top">
                     <div className="font-semibold text-neutral-900">{n.title}</div>
-                    <div className="mt-1 line-clamp-2 text-sm text-neutral-600">{n.body}</div>
-                    {/* meta örneği */}
-                    {!!n.meta?.orderId && (
-                      <div className="mt-1 text-xs text-neutral-500">Sipariş No: #{n.meta.orderId}</div>
-                    )}
-                    {typeof n.meta?.amount === 'number' && (
-                      <div className="mt-1 text-xs text-neutral-500">Tutar: ₺{n.meta.amount.toLocaleString('tr-TR')}</div>
-                    )}
+                    <div className="mt-1 line-clamp-2 text-sm text-neutral-600">
+                      {stripHtml(n.bodyHtml)}
+                    </div>
                   </td>
                   <td className="px-4 py-3 align-top">{typeLabel(n.type)}</td>
                   <td className="px-4 py-3 align-top">
@@ -326,7 +322,7 @@ export default function RestaurantNotificationsPage() {
               ))}
             </tbody>
 
-            {paged.length > 0 && (
+            {!loading && !error && paged.length > 0 && (
               <tfoot>
                 <tr>
                   <td colSpan={6} className="border-t border-neutral-200/70">
@@ -348,7 +344,6 @@ export default function RestaurantNotificationsPage() {
                         </button>
                       </div>
 
-                      {/* Pagination (demo) */}
                       <div className="flex items-center gap-2">
                         <button
                           onClick={() => setPage(p => Math.max(1, p - 1))}
@@ -377,7 +372,6 @@ export default function RestaurantNotificationsPage() {
         </div>
       </section>
 
-      {/* Detail Side Panel */}
       {detail && (
         <DetailDrawer
           item={detail}
@@ -396,13 +390,9 @@ export default function RestaurantNotificationsPage() {
   );
 }
 
-/* ====================== Detail Drawer ====================== */
-
+/* ---------- Detail Drawer ---------- */
 function DetailDrawer({
-  item,
-  onClose,
-  onMarkRead,
-  onDelete,
+  item, onClose, onMarkRead, onDelete,
 }: {
   item: NotificationItem;
   onClose: () => void;
@@ -417,13 +407,7 @@ function DetailDrawer({
             <h3 className="text-lg font-semibold">{item.title}</h3>
             <div className="mt-1 text-xs text-neutral-500">{fmtDate(item.createdAt)}</div>
           </div>
-          <button
-            onClick={onClose}
-            aria-label="Kapat"
-            className="rounded-full p-2 hover:bg-neutral-100"
-          >
-            ✕
-          </button>
+          <button onClick={onClose} aria-label="Kapat" className="rounded-full p-2 hover:bg-neutral-100">✕</button>
         </div>
 
         <div className="space-y-4 p-5">
@@ -436,43 +420,23 @@ function DetailDrawer({
             </span>
           </div>
 
-          <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-4 text-neutral-900 whitespace-pre-wrap">
-            {item.body}
-          </div>
-
-          {/* Meta örnekleri */}
-          {(item.meta?.orderId || typeof item.meta?.amount === 'number') && (
-            <div className="rounded-xl border border-neutral-200 bg-white p-4 text-sm">
-              <div className="mb-2 text-neutral-600">Ek Bilgi</div>
-              {item.meta?.orderId && (
-                <div className="text-neutral-800">Sipariş No: #{item.meta.orderId}</div>
-              )}
-              {typeof item.meta?.amount === 'number' && (
-                <div className="text-neutral-800">Tutar: ₺{item.meta.amount.toLocaleString('tr-TR')}</div>
-              )}
-            </div>
-          )}
+          {/* HTML içeriği güvenli şekilde göster */}
+          <div
+            className="rounded-xl border border-neutral-200 bg-neutral-50 p-4 text-neutral-900 prose max-w-none"
+            dangerouslySetInnerHTML={{ __html: item.bodyHtml }}
+          />
         </div>
 
         <div className="flex items-center justify-end gap-2 border-t px-5 py-4">
           {item.status === 'unread' && (
-            <button
-              onClick={onMarkRead}
-              className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-indigo-700"
-            >
+            <button onClick={onMarkRead} className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-indigo-700">
               Okundu İşaretle
             </button>
           )}
-          <button
-            onClick={onDelete}
-            className="rounded-xl bg-rose-500 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-rose-600"
-          >
+          <button onClick={onDelete} className="rounded-xl bg-rose-500 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-rose-600">
             Sil
           </button>
-          <button
-            onClick={onClose}
-            className="rounded-xl bg-neutral-200 px-4 py-2 text-sm font-semibold text-neutral-800 hover:bg-neutral-300"
-          >
+          <button onClick={onClose} className="rounded-xl bg-neutral-200 px-4 py-2 text-sm font-semibold text-neutral-800 hover:bg-neutral-300">
             Kapat
           </button>
         </div>
