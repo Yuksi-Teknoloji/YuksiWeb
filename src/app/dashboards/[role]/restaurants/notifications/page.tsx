@@ -3,8 +3,7 @@
 
 import * as React from 'react';
 import { useParams } from 'next/navigation';
-import { getAuthToken } from '@/utils/auth'; // önceki mesajda eklediğimiz helper
-// istersen API_BASE de kullanabilirsin; proxy ile CORS sorunsuz olsun diye /yuksi kullandım.
+import { getAuthToken } from '@/utils/auth';
 
 type NotificationType = 'system' | 'order' | 'payout' | 'marketing';
 type NotificationStatus = 'unread' | 'read';
@@ -12,14 +11,14 @@ type NotificationStatus = 'unread' | 'read';
 type NotificationItem = {
   id: string;
   title: string;
-  bodyHtml: string;       // ← HTML tutuyoruz
-  type: NotificationType; // API bildirimleri “duyuru” gibi -> marketing’a map’liyoruz
-  status: NotificationStatus;
+  bodyHtml: string;
+  type: NotificationType;
+  status: NotificationStatus;   // backend’den gelmediği için sadece görüntü amaçlı
   createdAt: Date;
   meta?: { orderId?: string; amount?: number };
 };
 
-// ---- helpers
+// helpers
 const fmtDate = (d: Date) => d.toLocaleString('tr-TR');
 const typeLabel = (t: NotificationType) =>
   t === 'order' ? 'Sipariş' :
@@ -37,15 +36,15 @@ const stripHtml = (html: string) => {
   return (tmp.textContent || tmp.innerText || '').trim();
 };
 
-// ---- API tipleri
+// API tipleri
 type ApiNotification = {
   id: number;
-  type: 'bulk' | 'single';          // bizde gösterimde fark etmiyor
+  type: 'bulk' | 'single';
   target_email: string | null;
   user_type: 'all' | 'restaurant' | 'courier' | 'customer';
   subject: string;
-  message: string;                  // HTML gelebilir
-  created_at: string;               // ISO
+  message: string;
+  created_at: string;
 };
 
 export default function RestaurantNotificationsPage() {
@@ -64,7 +63,7 @@ export default function RestaurantNotificationsPage() {
   const [page, setPage] = React.useState(1);
   const pageSize = 6;
 
-  // ---- fetch list (token role’una göre backend filtreli döner)
+  // Listeyi çek
   React.useEffect(() => {
     let alive = true;
     (async () => {
@@ -75,10 +74,7 @@ export default function RestaurantNotificationsPage() {
         if (!token) throw new Error('Oturum bulunamadı. Lütfen giriş yapınız.');
 
         const res = await fetch('/yuksi/Notification/list', {
-          headers: {
-            'Accept': 'application/json',
-            'Authorization': `Bearer ${token}`,
-          },
+          headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
           cache: 'no-store',
         });
 
@@ -96,8 +92,8 @@ export default function RestaurantNotificationsPage() {
           id: String(n.id),
           title: (n.subject ?? '').trim() || '—',
           bodyHtml: String(n.message ?? ''),
-          type: 'marketing',                 // şu an tüm bildirimler duyuru/doğrudan mesaj gibi
-          status: 'unread',                  // backend ayrı status dönmüyor → başlangıçta unread
+          type: 'marketing',
+          status: 'unread', // backend okumuyor; sadece rozet için
           createdAt: new Date(n.created_at),
         }));
 
@@ -113,7 +109,7 @@ export default function RestaurantNotificationsPage() {
     return () => { alive = false; };
   }, [role]);
 
-  // ---- filters + paging
+  // Filtre & sayfalama
   const filtered = React.useMemo(() => {
     const q = query.trim().toLowerCase();
     return items.filter((n) => {
@@ -134,7 +130,7 @@ export default function RestaurantNotificationsPage() {
     if (page > pageCount) setPage(1);
   }, [pageCount, page]);
 
-  // ---- local actions (şimdilik backend’e yazmıyoruz)
+  // Seçimler
   function toggleSelect(id: string) {
     setSelectedIds(prev => {
       const next = new Set(prev);
@@ -146,26 +142,65 @@ export default function RestaurantNotificationsPage() {
     setSelectedIds(prev => {
       const allSelected = currentPageIds.every(id => prev.has(id));
       const next = new Set(prev);
-      (allSelected ? currentPageIds : currentPageIds.filter(id => !prev.has(id)))
-        .forEach(id => allSelected ? next.delete(id) : next.add(id));
+      if (allSelected) currentPageIds.forEach(id => next.delete(id));
+      else currentPageIds.forEach(id => next.add(id));
       return next;
     });
   }
-  function markAsRead(ids: string[]) {
+
+  // SİLME — tekli/çoklu
+  async function deleteIds(ids: string[]) {
     if (ids.length === 0) return;
-    setItems(prev => prev.map(n => ids.includes(n.id) ? { ...n, status: 'read' } : n));
-    setSelectedIds(new Set());
-  }
-  function markAllAsRead() {
-    setItems(prev => prev.map(n => ({ ...n, status: 'read' })));
-    setSelectedIds(new Set());
-  }
-  function deleteSelected(ids: string[]) {
-    if (ids.length === 0) return;
-    if (!confirm('Seçili bildirimler silinsin mi?')) return;
+    if (!confirm(`${ids.length > 1 ? 'Seçili bildirimler' : 'Bildirim'} silinsin mi?`)) return;
+
+    const token = getAuthToken();
+    if (!token) {
+      alert('Oturum bulunamadı.');
+      return;
+    }
+
+    // optimistic: önce düş, sonra deneyip hatalıları geri al
+    const prevItems = items;
     setItems(prev => prev.filter(n => !ids.includes(n.id)));
     setSelectedIds(new Set());
+
+    try {
+      const results = await Promise.allSettled(
+        ids.map(id =>
+          fetch(`/yuksi/Notification/delete/${encodeURIComponent(id)}`, {
+            method: 'DELETE',
+            headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
+          }).then(async (res) => {
+            const t = await res.text();
+            let j: any = null; try { j = t ? JSON.parse(t) : null; } catch {}
+            if (!res.ok || j?.success === false) {
+              throw new Error(j?.message || `Silinemedi (HTTP ${res.status})`);
+            }
+            return true;
+          })
+        )
+      );
+
+      const failed = results
+        .map((r, i) => ({ r, id: ids[i] }))
+        .filter(x => x.r.status === 'rejected');
+
+      if (failed.length) {
+        // başarısız olanları geri ekle
+        const failedIds = new Set(failed.map(f => f.id));
+        setItems(curr => [
+          ...curr,
+          ...prevItems.filter(n => failedIds.has(n.id)),
+        ].sort((a, b) => +a.createdAt - +b.createdAt));
+        alert(`Silinemeyen ${failed.length} kayıt var.`);
+      }
+    } catch (e: any) {
+      // genel hata -> rollback
+      setItems(prevItems);
+      alert(e?.message || 'Silme işlemi başarısız.');
+    }
   }
+
   function clearFilters() {
     setQuery(''); setTypeFilter('all'); setStatusFilter('all'); setPage(1);
   }
@@ -174,14 +209,7 @@ export default function RestaurantNotificationsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold tracking-tight">Bildirimler</h1>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={markAllAsRead}
-            className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-indigo-700"
-          >
-            Tümünü Okundu Yap
-          </button>
-        </div>
+        {/* “Tümünü Okundu Yap” KALDIRILDI */}
       </div>
 
       {/* Filters */}
@@ -296,14 +324,6 @@ export default function RestaurantNotificationsPage() {
                   <td className="px-4 py-3 align-top">{fmtDate(n.createdAt)}</td>
                   <td className="px-4 py-3 align-top">
                     <div className="flex items-center justify-end gap-2">
-                      {n.status === 'unread' && (
-                        <button
-                          onClick={() => markAsRead([n.id])}
-                          className="rounded-lg bg-indigo-500 px-3 py-1.5 text-sm font-semibold text-white shadow hover:bg-indigo-600"
-                        >
-                          Okundu İşaretle
-                        </button>
-                      )}
                       <button
                         onClick={() => setDetail(n)}
                         className="rounded-lg bg-sky-500 px-3 py-1.5 text-sm font-semibold text-white shadow hover:bg-sky-600"
@@ -311,7 +331,7 @@ export default function RestaurantNotificationsPage() {
                         Görüntüle
                       </button>
                       <button
-                        onClick={() => deleteSelected([n.id])}
+                        onClick={() => deleteIds([n.id])}
                         className="rounded-lg bg-rose-500 px-3 py-1.5 text-sm font-semibold text-white shadow hover:bg-rose-600"
                       >
                         Sil
@@ -328,15 +348,9 @@ export default function RestaurantNotificationsPage() {
                   <td colSpan={6} className="border-t border-neutral-200/70">
                     <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
                       <div className="flex items-center gap-2">
+                        {/* “Seçilileri Okundu Yap” KALDIRILDI */}
                         <button
-                          onClick={() => markAsRead(Array.from(selectedIds))}
-                          disabled={selectedIds.size === 0}
-                          className="rounded-xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-emerald-600 disabled:opacity-50"
-                        >
-                          Seçilileri Okundu Yap
-                        </button>
-                        <button
-                          onClick={() => deleteSelected(Array.from(selectedIds))}
+                          onClick={() => deleteIds(Array.from(selectedIds))}
                           disabled={selectedIds.size === 0}
                           className="rounded-xl bg-rose-500 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-rose-600 disabled:opacity-50"
                         >
@@ -376,12 +390,8 @@ export default function RestaurantNotificationsPage() {
         <DetailDrawer
           item={detail}
           onClose={() => setDetail(null)}
-          onMarkRead={() => {
-            markAsRead([detail.id]);
-            setDetail(prev => prev ? { ...prev, status: 'read' } : prev);
-          }}
           onDelete={() => {
-            deleteSelected([detail.id]);
+            deleteIds([detail.id]);
             setDetail(null);
           }}
         />
@@ -392,11 +402,10 @@ export default function RestaurantNotificationsPage() {
 
 /* ---------- Detail Drawer ---------- */
 function DetailDrawer({
-  item, onClose, onMarkRead, onDelete,
+  item, onClose, onDelete,
 }: {
   item: NotificationItem;
   onClose: () => void;
-  onMarkRead: () => void;
   onDelete: () => void;
 }) {
   return (
@@ -420,7 +429,7 @@ function DetailDrawer({
             </span>
           </div>
 
-          {/* HTML içeriği güvenli şekilde göster */}
+          {/* HTML içeriği */}
           <div
             className="rounded-xl border border-neutral-200 bg-neutral-50 p-4 text-neutral-900 prose max-w-none"
             dangerouslySetInnerHTML={{ __html: item.bodyHtml }}
@@ -428,11 +437,7 @@ function DetailDrawer({
         </div>
 
         <div className="flex items-center justify-end gap-2 border-t px-5 py-4">
-          {item.status === 'unread' && (
-            <button onClick={onMarkRead} className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-indigo-700">
-              Okundu İşaretle
-            </button>
-          )}
+          {/* “Okundu İşaretle” BUTONU KALDIRILDI */}
           <button onClick={onDelete} className="rounded-xl bg-rose-500 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-rose-600">
             Sil
           </button>

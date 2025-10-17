@@ -589,16 +589,10 @@ export default function OrderHistoryPage() {
                             Detay
                           </button>
                           <button
-                            onClick={() => alert('Yeniden gönder: ' + r.code)}
-                            className="rounded-lg bg-orange-500 px-3 py-1.5 text-sm font-semibold text-white hover:bg-orange-600"
-                          >
-                            Yeniden Gönder
-                          </button>
-                          <button
                             onClick={() => openUpdate(r.id)}
-                            className="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-indigo-700"
+                            className="rounded-lg bg-orange-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-orange-700"
                           >
-                            Güncelle
+                           Durumu Güncelle
                           </button>
                         </div>
                       </td>
