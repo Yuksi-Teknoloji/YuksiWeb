@@ -17,6 +17,7 @@ export const NAV: Record<Role, RawNavGroup[]> = {
       { label: "Ana",            path: "admin" },
       { label: "Genel Ayarlar",  path: "admin/settings" },
       { label: "Kullanıcı Mailleri", path: "admin/user-emails" },
+      { label: "Restoran Talepleri", path: "admin/restaurant-request" },
       { label: "Şehir Fiyatları", path: "admin/city-prices" },
     ],
   },
