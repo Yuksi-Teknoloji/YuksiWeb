@@ -6,7 +6,6 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 
 /* ---------- helpers ---------- */
-type JwtPayload = { userId?: string; sub?: string };
 function getAuthToken(): string | null {
   if (typeof window === 'undefined') return null;
   for (const k of ['auth_token', 'token', 'access_token', 'jwt', 'auth']) {
@@ -30,6 +29,8 @@ type CourierApi = {
   email?: string | null;
   phone?: string | null;
   created_at?: string | null;
+  deleted?: boolean,
+  deleted_at?: null,
   country_name?: string | null;
   state_name?: string | null;
   working_type?: number | null;
@@ -41,7 +42,7 @@ type CourierApi = {
 
 type DocsStatusUi =
   | 'Evrak Bekleniyor'
-  | 'İnceleme Bekliyor'
+  | 'İnceleme Bekleniyor'
   | 'Onaylandı'
   | 'Eksik Belge'
   | 'Reddedildi';
@@ -49,13 +50,13 @@ type DocsStatusUi =
 function statusFromStep(step?: number | null): DocsStatusUi {
   if (step == null) return 'Evrak Bekleniyor';
   if (step >= 3) return 'Onaylandı';
-  if (step === 2) return 'İnceleme Bekliyor';
+  if (step === 2) return 'İnceleme Bekleniyor';
   return 'Evrak Bekleniyor';
 }
 
 const statusClasses: Record<DocsStatusUi, string> = {
   'Evrak Bekleniyor': 'bg-neutral-200 text-neutral-700',
-  'İnceleme Bekliyor': 'bg-amber-400 text-white',
+  'İnceleme Bekleniyor': 'bg-amber-400 text-white',
   'Onaylandı': 'bg-emerald-500 text-white',
   'Eksik Belge': 'bg-rose-500 text-white',
   'Reddedildi': 'bg-rose-600 text-white',
@@ -70,6 +71,18 @@ function StatusPill({ value }: { value: DocsStatusUi }) {
   );
 }
 
+/* ---- Aktiflik pill'i ---- */
+function ActivePill({ active }: { active: boolean | null | undefined }) {
+  if (active == null) {
+    return <span className="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold bg-neutral-200 text-neutral-700">—</span>;
+  }
+  return (
+    <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${active ? 'bg-emerald-500 text-white' : 'bg-neutral-300 text-neutral-800'}`}>
+      {active ? 'AKTİF' : 'PASİF'}
+    </span>
+  );
+}
+
 type Row = {
   id: string;
   name: string;
@@ -78,7 +91,7 @@ type Row = {
   country: string;
   city: string;
   createdAt: string;
-  status: DocsStatusUi;
+  status: DocsStatusUi; // (detayda gösteriyoruz)
 
   // detail
   workingType?: number | null;
@@ -87,6 +100,15 @@ type Row = {
   vehicleYear?: number | null;
   step?: number | null;
 };
+
+/* ---- Silme endpoint bağlama noktası (sen doldur) ---- */
+const DELETE_ENDPOINT = (userId: string) =>
+  `/yuksi/Courier/${userId}/delete`;
+
+/* ---- Dokümanları çektiğimizde aktiflik kuralı ---- */
+type DocItem = { document_id: string; document_status: string };
+const computeActiveFromDocs = (docs: DocItem[]) =>
+  docs.length > 0 && docs.every(d => (d.document_status === 'onaylandi'));
 
 export default function CarrierListPage() {
   const { role } = useParams<{ role: string }>();
@@ -111,6 +133,10 @@ export default function CarrierListPage() {
   const [detail, setDetail] = React.useState<Row | null>(null);
   const [docsUserId, setDocsUserId] = React.useState<string | null>(null);
 
+  // aktiflik cache (id -> true/false), ayrıca yükleniyor takibi
+  const [activeCache, setActiveCache] = React.useState<Record<string, boolean | null>>({});
+  const activeLoadingRef = React.useRef<Set<string>>(new Set());
+
   // fetch list
   React.useEffect(() => {
     (async () => {
@@ -119,7 +145,8 @@ export default function CarrierListPage() {
         const res = await fetch('/yuksi/Courier/list', { cache: 'no-store', headers });
         const j: any = await readJson(res);
         if (!res.ok || j?.success === false) throw new Error(pickMsg(j, `HTTP ${res.status}`));
-        const list: CourierApi[] = Array.isArray(j?.data) ? j.data : (Array.isArray(j) ? j : []);
+        const rawList: CourierApi[] = Array.isArray(j?.data) ? j.data : (Array.isArray(j) ? j : []);
+        const list = rawList.filter(c => c.deleted === false);
         const mapped: Row[] = list.map((c) => ([
           String(c.id),
           [c.first_name, c.last_name].filter(Boolean).join(' ').trim() || '-',
@@ -176,6 +203,49 @@ export default function CarrierListPage() {
     [filtered, page, pageSize],
   );
 
+  /* ---- Ekranda görünen satırlar için aktiflikleri lazy çek ---- */
+  React.useEffect(() => {
+    const toFetch = pageRows
+      .map(r => r.id)
+      .filter(id => !(id in activeCache) && !activeLoadingRef.current.has(id));
+
+    if (toFetch.length === 0) return;
+
+    toFetch.forEach(async (id) => {
+      activeLoadingRef.current.add(id);
+      try {
+        const res = await fetch(`/yuksi/Courier/${id}/get_documents`, { cache: 'no-store', headers });
+        const j: any = await readJson(res);
+        if (!res.ok || j?.success === false) throw new Error(pickMsg(j, `HTTP ${res.status}`));
+        const list: DocItem[] = Array.isArray(j?.data) ? j.data : [];
+        const isActive = computeActiveFromDocs(list);
+        setActiveCache(prev => ({ ...prev, [id]: isActive }));
+      } catch {
+        setActiveCache(prev => ({ ...prev, [id]: null })); // hata: gösterge “—”
+      } finally {
+        activeLoadingRef.current.delete(id);
+      }
+    });
+  }, [pageRows, headers, activeCache]);
+
+  /* ---- satır silme ---- */
+  async function handleDelete(id: string) {
+    if (!confirm('Bu kuryeyi silmek istediğinize emin misiniz?')) return;
+    const url = DELETE_ENDPOINT(id);
+    if (!url) {
+      alert('Silme endpointi (DELETE_ENDPOINT) boş. Doldurduktan sonra çalışacak.');
+      return;
+    }
+    try {
+      const res = await fetch(url, { method: 'DELETE', headers });
+      const j = await readJson(res);
+      if (!res.ok || j?.success === false) throw new Error(pickMsg(j, `HTTP ${res.status}`));
+      setRows(prev => prev.filter(r => r.id !== id));
+    } catch (e: any) {
+      alert(e?.message || 'Silme işlemi başarısız.');
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -223,9 +293,9 @@ export default function CarrierListPage() {
                 <th className="px-6 py-3 font-medium w-[260px]">Ad Soyad</th>
                 <th className="px-6 py-3 font-medium w-[260px]">E-posta / Telefon</th>
                 <th className="px-6 py-3 font-medium w-[220px]">Ülke / Şehir</th>
-                <th className="px-6 py-3 font-medium w-[160px]">Durum</th>
+                <th className="px-6 py-3 font-medium w-[120px]">Aktif</th> {/* değişti */}
                 <th className="px-6 py-3 font-medium w-[190px]">Kayıt Tarihi</th>
-                <th className="px-6 py-3 font-medium w-[200px]"></th>
+                <th className="px-6 py-3 font-medium w-[260px]"></th> {/* aksiyonlar */}
               </tr>
             </thead>
 
@@ -256,7 +326,7 @@ export default function CarrierListPage() {
                   </td>
 
                   <td className="px-6 py-4">
-                    <StatusPill value={r.status} />
+                    <ActivePill active={activeCache[r.id]} />
                   </td>
 
                   <td className="px-6 py-4">{r.createdAt}</td>
@@ -275,6 +345,14 @@ export default function CarrierListPage() {
                         className="rounded-lg bg-indigo-500 px-3 py-1.5 text-sm font-semibold text-white shadow hover:bg-indigo-600"
                       >
                         Dokümanlar
+                      </button>
+
+                      <button
+                        onClick={() => handleDelete(r.id)}
+                        className="rounded-lg bg-rose-600 px-3 py-1.5 text-sm font-semibold text-white shadow hover:bg-rose-700"
+                        title="Sil"
+                      >
+                        Sil
                       </button>
                     </div>
                   </td>
@@ -317,7 +395,10 @@ export default function CarrierListPage() {
       {docsUserId && (
         <DocumentsModal
           userId={docsUserId}
-          onClose={() => setDocsUserId(null)}
+          onClose={() => {
+            setDocsUserId(null);
+            window.location.reload(); // full reload
+          }}
         />
       )}
     </div>
@@ -395,25 +476,17 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-/* ---------- Documents Modal (UPDATED: uses document_id) ---------- */
+/* ---------- Documents Modal (değişmedi) ---------- */
 
-type DocItem = {
-  document_id: string;        // <-- swagger
-  doc_type: string;
-  file_id: string;
-  image_url: string;
-  document_status: string;    // evrak_bekleniyor | inceleme_bekleniyor | eksik_belge | kurye_verildi | reddedildi | onaylandi
-  uploaded_at?: string | null;
+type DocsResponse = {
+  data: { document_id: string; doc_type: string; file_id: string; image_url: string; document_status: string; uploaded_at?: string | null; }[];
+  is_active?: boolean;
+  deleted?: boolean;
+  success?: boolean;
+  message?: string;
 };
 
-const DOC_STATUS_OPTIONS = [
-  'evrak_bekleniyor',
-  'inceleme_bekleniyor',
-  'eksik_belge',
-  'kurye_verildi',
-  'reddedildi',
-  'onaylandi',
-] as const;
+const DOC_STATUS_OPTIONS = ['evrak_bekleniyor', 'inceleme_bekleniyor', 'eksik_belge', 'reddedildi', 'onaylandi'] as const;
 
 function badgeByApiStatus(s: string) {
   switch (s) {
@@ -422,10 +495,12 @@ function badgeByApiStatus(s: string) {
     case 'evrak_bekleniyor': return 'bg-neutral-200 text-neutral-700';
     case 'eksik_belge': return 'bg-rose-500 text-white';
     case 'reddedildi': return 'bg-rose-600 text-white';
-    case 'kurye_verildi': return 'bg-indigo-500 text-white';
     default: return 'bg-neutral-200 text-neutral-700';
   }
 }
+
+const ACTIVE_ENDPOINT = (userId: string) => ''; // is_active senk için (isteğe bağlı)
+const DELETE_MODAL_ENDPOINT = (userId: string) => ''; // kullanılmıyor; silme satırdan yapılıyor
 
 function DocumentsModal({ userId, onClose }: { userId: string; onClose: () => void }) {
   const token = React.useMemo(() => getAuthToken(), []);
@@ -435,25 +510,39 @@ function DocumentsModal({ userId, onClose }: { userId: string; onClose: () => vo
     return h;
   }, [token]);
 
-  const [docs, setDocs] = React.useState<DocItem[]>([]);
+  const [docs, setDocs] = React.useState<DocsResponse['data']>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const [savingId, setSavingId] = React.useState<string | null>(null);
   const [localStatus, setLocalStatus] = React.useState<Record<string, string>>({});
+  const [isActive, setIsActive] = React.useState<boolean | null>(null);
+  const [deleted, setDeleted] = React.useState<boolean | null>(null);
+  const [syncingActive, setSyncingActive] = React.useState(false);
+
+  const computeIsActive = React.useCallback(
+    (statusMap: Record<string, string>, list: DocsResponse['data']) =>
+      list.length > 0 && list.every(d => (statusMap[d.document_id] ?? d.document_status) === 'onaylandi'),
+    []
+  );
 
   React.useEffect(() => {
     (async () => {
       setLoading(true); setError(null);
       try {
-        // GET /yuksi/Courier/{user_id}/get_documents
         const res = await fetch(`/yuksi/Courier/${userId}/get_documents`, { cache: 'no-store', headers });
-        const j: any = await readJson(res);
-        if (!res.ok || j?.success === false) throw new Error(pickMsg(j, `HTTP ${res.status}`));
-        const list: DocItem[] = Array.isArray(j?.data) ? j.data : [];
+        const raw: any = await readJson(res);
+        if (!res.ok || raw?.success === false) throw new Error(pickMsg(raw, `HTTP ${res.status}`));
+
+        const list: DocsResponse['data'] = Array.isArray(raw?.data) ? raw.data : (Array.isArray(raw) ? raw : []);
         setDocs(list);
+
         const initial: Record<string, string> = {};
         list.forEach(d => { initial[d.document_id] = d.document_status; });
         setLocalStatus(initial);
+
+        const activeNow = typeof raw?.is_active === 'boolean' ? raw.is_active : computeIsActive(initial, list);
+        setIsActive(activeNow);
+        if (typeof raw?.deleted === 'boolean') setDeleted(raw.deleted);
       } catch (e: any) {
         setError(e?.message || 'Dokümanlar alınamadı.');
         setDocs([]);
@@ -461,14 +550,13 @@ function DocumentsModal({ userId, onClose }: { userId: string; onClose: () => vo
         setLoading(false);
       }
     })();
-  }, [headers, userId]);
+  }, [headers, userId, computeIsActive]);
 
   async function updateStatus(documentId: string) {
     const newStatus = localStatus[documentId];
     if (!newStatus) return;
     setSavingId(documentId);
     try {
-      // PUT /yuksi/Courier/{user_id}/update_documents_status/{document_id}
       const res = await fetch(`/yuksi/Courier/${userId}/update_documents_status/${documentId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...headers },
@@ -476,7 +564,28 @@ function DocumentsModal({ userId, onClose }: { userId: string; onClose: () => vo
       });
       const j: any = await readJson(res);
       if (!res.ok || j?.success === false) throw new Error(pickMsg(j, `HTTP ${res.status}`));
-      // optimistic ok
+
+      setDocs(prev => prev.map(d => d.document_id === documentId ? { ...d, document_status: newStatus } : d));
+
+      const activeNext = computeIsActive(localStatus, docs.map(d =>
+        d.document_id === documentId ? { ...d, document_status: newStatus } : d
+      ));
+      if (activeNext !== isActive) {
+        setIsActive(activeNext);
+        const url = ACTIVE_ENDPOINT(userId);
+        if (url) {
+          try {
+            setSyncingActive(true);
+            await fetch(url, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json', ...headers },
+              body: JSON.stringify({ is_active: activeNext }),
+            });
+          } finally {
+            setSyncingActive(false);
+          }
+        }
+      }
     } catch (e: any) {
       alert(e?.message || 'Statü güncellenemedi.');
     } finally {
@@ -500,6 +609,19 @@ function DocumentsModal({ userId, onClose }: { userId: string; onClose: () => vo
         </div>
 
         <div className="max-h-[74vh] overflow-auto p-5">
+          <div className="mb-4 flex flex-wrap items-center gap-2">
+            <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${isActive ? 'bg-emerald-500 text-white' : 'bg-neutral-300 text-neutral-800'}`}>
+              Aktiflik: {isActive ? 'AKTİF' : 'PASİF'}
+            </span>
+            {syncingActive && <span className="text-xs text-neutral-500">• Aktiflik güncelleniyor…</span>}
+            {typeof deleted === 'boolean' && (
+              <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${deleted ? 'bg-rose-600 text-white' : 'bg-indigo-500 text-white'}`}>
+                {deleted ? 'Silinmiş' : 'Kayıt Duruyor'}
+              </span>
+            )}
+            <span className="text-xs text-neutral-500">Kural: Tüm belgeler <b>onaylandi</b> ise otomatik AKTİF olur.</span>
+          </div>
+
           {loading && <div className="py-12 text-center text-sm text-neutral-500">Yükleniyor…</div>}
           {error && <div className="mb-4 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div>}
 

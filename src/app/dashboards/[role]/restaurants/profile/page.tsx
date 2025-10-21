@@ -3,7 +3,36 @@
 
 import * as React from 'react';
 import Image from 'next/image';
-import { API_BASE } from '@/configs/api';
+import { decodeJwt, type JwtClaims } from '@/utils/jwt';
+
+/** -------- helpers (token) -------- */
+function getAuthToken(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    // projede en sık kullanılan anahtarı öne al
+    const keys = ['auth_token', 'token', 'authToken', 'access_token', 'jwt'];
+    for (const k of keys) {
+      const v = localStorage.getItem(k);
+      if (v && v.trim()) return v.trim();
+    }
+  } catch {}
+  // cookie fallback
+  if (typeof document !== 'undefined') {
+    const m =
+      document.cookie.match(/(?:^|;\s*)auth_token=([^;]+)/) ||
+      document.cookie.match(/(?:^|;\s*)token=([^;]+)/) ||
+      document.cookie.match(/(?:^|;\s*)authToken=([^;]+)/);
+    if (m) return decodeURIComponent(m[1]);
+  }
+  return null;
+}
+
+function getUserIdFromToken(tok: string | null): string | null {
+  const claims = decodeJwt<JwtClaims>(tok || undefined);
+  if (!claims) return null;
+  const raw = (claims.userId ?? claims.sub ?? (claims as any).userid) as any;
+  return raw != null ? String(raw) : null;
+}
 
 /** --- API tipleri --- */
 type ApiProfile = {
@@ -16,51 +45,8 @@ type ApiProfile = {
   closingHour: string;
 };
 
-/** --- JWT içinden userId çekme yardımcıları --- */
-function base64UrlToJson<T = any>(b64url: string): T {
-  const b64 = b64url.replace(/-/g, '+').replace(/_/g, '/');
-  const json = atob(b64);
-  try {
-    // unicode güvenli decode
-    const utf8 = decodeURIComponent(
-      Array.prototype.map.call(json, (c: string) =>
-        '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)
-      ).join('')
-    );
-    return JSON.parse(utf8);
-  } catch {
-    return JSON.parse(json);
-  }
-}
-
-function readTokenFromStorage(): string | null {
-  if (typeof window === 'undefined') return null;
-  // projende hangi anahtar kullanılıyorsa onu öne al
-  return (
-    localStorage.getItem('authToken') ||
-    localStorage.getItem('token') ||
-    // cookie fallback
-    (document.cookie.match(/(?:^|;\s*)authToken=([^;]+)/)?.[1] ??
-      document.cookie.match(/(?:^|;\s*)token=([^;]+)/)?.[1] ??
-      null)
-  );
-}
-
-function getUserIdFromToken(): string | null {
-  try {
-    const tok = readTokenFromStorage();
-    if (!tok) return null;
-    const parts = tok.split('.');
-    if (parts.length < 2) return null;
-    const payload = base64UrlToJson<any>(parts[1]);
-    const id = payload?.userId ?? payload?.userid ?? payload?.sub ?? null;
-    return id != null ? String(id) : null;
-  } catch {
-    return null;
-  }
-}
-
 export default function RestaurantProfilePage() {
+  const [token, setToken] = React.useState<string | null>(null);
   const [restaurantId, setRestaurantId] = React.useState<string | null>(null);
 
   const [form, setForm] = React.useState<ApiProfile>({
@@ -91,18 +77,20 @@ export default function RestaurantProfilePage() {
   const toggle = (k: keyof typeof editing) =>
     setEditing((s) => ({ ...s, [k]: !s[k] }));
 
-  // 1) token'dan restaurantId al
+  /** 1) token + userId çek */
   React.useEffect(() => {
-    const id = getUserIdFromToken();
-    if (!id) {
-      setErrMsg('Kimlik doğrulama bulunamadı veya token geçersiz (userId yok).');
+    const t = getAuthToken();
+    setToken(t);
+    const uid = getUserIdFromToken(t);
+    if (!uid) {
+      setErrMsg('Kimlik doğrulama bulunamadı: token’da userId/sub yok.');
       setLoading(false);
       return;
     }
-    setRestaurantId(id);
+    setRestaurantId(uid);
   }, []);
 
-  // 2) id gelince profili yükle
+  /** 2) profil yükle */
   React.useEffect(() => {
     if (!restaurantId) return;
     let alive = true;
@@ -111,16 +99,35 @@ export default function RestaurantProfilePage() {
       setLoading(true);
       setErrMsg(null);
       try {
-        const res = await fetch(
-          `/yuksi/Restaurant/${restaurantId}/profile`,
-          { cache: 'no-store', headers: { Accept: 'application/json' } }
-        );
-        const text = await res.text();
-        const json = text ? JSON.parse(text) : null;
-        if (!res.ok) throw new Error(json?.message || json?.title || `HTTP ${res.status}`);
+        const res = await fetch(`/yuksi/Restaurant/${restaurantId}/profile`, {
+          cache: 'no-store',
+          headers: {
+            Accept: 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+        });
 
-        // swagger’a göre direkt obje dönüyor
-        const data: ApiProfile = json;
+        const txt = await res.text();
+        const j = txt ? JSON.parse(txt) : null;
+
+        if (!res.ok || j?.success === false) {
+          const msg =
+            j?.message || j?.detail || j?.title || `HTTP ${res.status}`;
+          throw new Error(msg);
+        }
+
+        // Esnek parse: direkt obje, {data:{...}} ya da {result:{...}}
+        const data: ApiProfile =
+          j?.data ?? j?.result ?? j ?? {
+            email: '',
+            phone: '',
+            contactPerson: '',
+            addressLine1: '',
+            addressLine2: '',
+            openingHour: '',
+            closingHour: '',
+          };
+
         if (!alive) return;
         setForm({
           email: data.email ?? '',
@@ -142,26 +149,33 @@ export default function RestaurantProfilePage() {
     return () => {
       alive = false;
     };
-  }, [restaurantId]);
+  }, [restaurantId, token]);
 
-  // 3) Kaydet
+  /** 3) Kaydet */
   async function saveAll() {
     if (!restaurantId || saving) return;
     setSaving(true);
     setOkMsg(null);
     setErrMsg(null);
     try {
-      const res = await fetch(
-        `/yuksi/Restaurant/${restaurantId}/profile`,
-        {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(form),
-        }
-      );
-      const text = await res.text();
-      const json = text ? JSON.parse(text) : null;
-      if (!res.ok) throw new Error(json?.message || json?.title || `HTTP ${res.status}`);
+      const res = await fetch(`/yuksi/Restaurant/${restaurantId}/profile`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(form),
+      });
+
+      const txt = await res.text();
+      const j = txt ? JSON.parse(txt) : null;
+
+      if (!res.ok || j?.success === false) {
+        const msg =
+          j?.message || j?.detail || j?.title || `HTTP ${res.status}`;
+        throw new Error(msg);
+      }
 
       setOkMsg('Profil başarıyla güncellendi.');
       setEditing({

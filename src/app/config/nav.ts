@@ -22,6 +22,12 @@ export const NAV: Record<Role, RawNavGroup[]> = {
     ],
   },
   {
+    title: "Fiyatlandırmalar",
+    items: [
+      { label: "Restoran Fiyatlandırma", path: "admin/pricing/restaurant-packages" }
+    ],
+  },
+  {
     title: "Nakliyeler",
     items: [
       { label: "Taşıma Listesi", path: "admin/shipments/shipping-list" },
