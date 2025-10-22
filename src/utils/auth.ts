@@ -1,3 +1,5 @@
+// src/utils/auth.ts
+
 export function getAuthToken(): string | null {
   try {
     const ls = localStorage.getItem('auth_token');

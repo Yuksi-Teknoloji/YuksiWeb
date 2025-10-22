@@ -2,39 +2,28 @@
 'use client';
 
 import * as React from 'react';
-import { useParams } from 'next/navigation';
+import { getAuthToken } from '@/utils/auth';
 
-/* ===================== DEMO: negotiated price ===================== */
-/** Normalde bu değer admin panelinden her işletme için ayrı kaydedilir.
- *  Demo’da yerel mock’tan okunuyor; yoksa 80 TL varsayılıyor.
- */
-type NegotiatedPrice = {
-  unitPriceTRY: number;          // 1 paket için anlaşmalı birim fiyat (TRY)
-  currency: 'TRY';
-  minPackages?: number;          // istersen alt sınır
-  maxPackages?: number;          // istersen üst sınır
+/* ===== API tipleri ===== */
+type ApiMyPrice = {
+  id: number;
+  restaurant_id: string;
+  unit_price: number;
+  min_package?: number | null;
+  max_package?: number | null;
+  note?: string | null;
+  updated_at?: string | null;
 };
+type ApiMyPriceResponse =
+  | { success: true; message?: string; data: ApiMyPrice }
+  | { success: false; message?: string };
 
-function loadNegotiatedPriceDemo(): NegotiatedPrice {
-  // Demo: URL’de ?unit=90 girilirse 90 TL olsun, yoksa 80 TL
-  if (typeof window !== 'undefined') {
-    const u = new URLSearchParams(window.location.search).get('unit');
-    const n = Number(u);
-    if (!Number.isNaN(n) && n > 0) return { unitPriceTRY: Math.round(n), currency: 'TRY', minPackages: 10 };
-  }
-  return { unitPriceTRY: 80, currency: 'TRY', minPackages: 10 };
-}
-
-/* ===================== Types ===================== */
-type PurchaseRow = {
-  id: string;
-  createdAt: Date;
-  packageCount: number;
-  unitPrice: number;
-  totalPaid: number;
-  paymentMethod: PaymentMethod;
-  status: 'pending' | 'paid' | 'failed';
-  mockPaymentUrl: string;
+type NegotiatedPrice = {
+  unitPriceTRY: number;
+  minPackages?: number | null;
+  maxPackages?: number | null;
+  note?: string | null;
+  updatedAt?: string | null;
 };
 
 enum PaymentMethod {
@@ -43,307 +32,330 @@ enum PaymentMethod {
   Cash = 'cash',
 }
 
-/* ===================== Utils ===================== */
-const fmtCurrency = (n: number) =>
+/* ===== util ===== */
+const fmtTRY = (n: number) =>
   n.toLocaleString('tr-TR', { style: 'currency', currency: 'TRY', maximumFractionDigits: 0 });
+const fmtISO = (iso?: string | null) => (iso ? new Date(iso).toLocaleString('tr-TR') : '-');
 
-const fmtDate = (d: Date) => d.toLocaleString('tr-TR');
+async function readJson<T = any>(res: Response): Promise<T> {
+  const t = await res.text();
+  try { return t ? JSON.parse(t) : (null as any); } catch { return (t as any); }
+}
+const pickMsg = (d: any, fb: string) =>
+  d?.error?.message || d?.message || d?.detail || d?.title || fb;
 
-/* ===================== Page ===================== */
+/* ===== Page ===== */
 export default function BuyPackagePage() {
-  const { role } = useParams<{ role: string }>();
-  const [pricing, setPricing] = React.useState<NegotiatedPrice>(() => loadNegotiatedPriceDemo());
+  // token’ı yalnızca client’ta oku
+  const [token, setToken] = React.useState<string | null>(null);
+  React.useEffect(() => { setToken(getAuthToken()); }, []);
+  const authHeaders = React.useMemo<HeadersInit>(() => {
+    const h: HeadersInit = { Accept: 'application/json' };
+    if (token) (h as any).Authorization = `Bearer ${token}`;
+    return h;
+  }, [token]);
 
-  // Form state
-  const [packageCount, setPackageCount] = React.useState<number>(100);
+  // fiyat
+  const [pricing, setPricing] = React.useState<NegotiatedPrice | null>(null);
+  const [loading, setLoading] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+
+  // form
+  const [count, setCount] = React.useState<number>(1);
   const [paymentMethod, setPaymentMethod] = React.useState<PaymentMethod>(PaymentMethod.CreditCard);
-  const [coupon, setCoupon] = React.useState<string>('');
-  const [note, setNote] = React.useState<string>('');
 
-  // Results
-  const [purchases, setPurchases] = React.useState<PurchaseRow[]>([]);
+  // kart + fatura bilgileri (PayTR/Init body için)
+  const [email, setEmail] = React.useState('');
+  const [nameOnCard, setNameOnCard] = React.useState('');
+  const [cardNo, setCardNo] = React.useState('');
+  const [expMonth, setExpMonth] = React.useState('');
+  const [expYear, setExpYear] = React.useState('');
+  const [cvv, setCvv] = React.useState('');
+  const [userName, setUserName] = React.useState('');
+  const [userAddress, setUserAddress] = React.useState('');
+  const [userPhone, setUserPhone] = React.useState('');
+
   const [submitting, setSubmitting] = React.useState(false);
   const [info, setInfo] = React.useState<string | null>(null);
 
-  // Discount (DEMO)
-  const discountRate = React.useMemo(
-    () => (coupon.trim().toUpperCase() === 'YUKSI10' ? 0.1 : 0),
-    [coupon]
-  );
-
-  const { unitPriceTRY } = pricing;
-  const subtotal = unitPriceTRY * Math.max(0, packageCount);
-  const discount = Math.round(subtotal * discountRate);
-  const total = Math.max(0, subtotal - discount);
-
-  function resetInfoSoon(msg: string) {
-    setInfo(msg);
+  function toast(s: string) {
+    setInfo(s);
     setTimeout(() => setInfo(null), 4000);
   }
 
-  function simulatePaymentLink(amount: number) {
-    const id = crypto.randomUUID().slice(0, 8);
-    return `https://pay.yuksi.dev/demo/checkout?ref=${id}&amount=${amount}`;
-  }
+  /* ---- fiyatı çek ---- */
+  const loadMyPrice = React.useCallback(async () => {
+    if (!token) return;
+    setLoading(true); setError(null);
+    try {
+      const res = await fetch('/yuksi/PackagePrice/my-price', { headers: authHeaders, cache: 'no-store' });
+      const j = await readJson<ApiMyPriceResponse>(res);
+      if (!res.ok || (j && (j as any).success === false)) throw new Error(pickMsg(j, `HTTP ${res.status}`));
 
-  async function submitDemo(e: React.FormEvent) {
+      const d = (j as any).data as ApiMyPrice;
+      setPricing({
+        unitPriceTRY: d.unit_price,
+        minPackages: d.min_package ?? null,
+        maxPackages: d.max_package ?? null,
+        note: d.note ?? null,
+        updatedAt: d.updated_at ?? null,
+      });
+
+      // başlangıç adetini gelen sınırlara oturt
+      const start =
+        (d.max_package ?? null) ??
+        (d.min_package ?? null) ?? 1;
+      setCount((prev) => {
+        if (prev === 1) return Math.max(d.min_package ?? 1, Math.min(start, d.max_package ?? start));
+        return Math.max(d.min_package ?? 1, Math.min(prev, d.max_package ?? prev));
+      });
+    } catch (e: any) {
+      setPricing(null);
+      setError(e?.message || 'Fiyat bilgisi alınamadı.');
+    } finally {
+      setLoading(false);
+    }
+  }, [authHeaders, token]);
+
+  React.useEffect(() => { loadMyPrice(); }, [loadMyPrice]);
+
+  const unit = pricing?.unitPriceTRY ?? 0;
+  const total = unit * count;
+
+  /* ---- PayTR Init ---- */
+  async function startPayment(e: React.FormEvent) {
     e.preventDefault();
-    if (pricing.minPackages && packageCount < pricing.minPackages) {
-      resetInfoSoon(`En az ${pricing.minPackages} paket satın alabilirsiniz.`);
+    if (!pricing) return;
+
+    // min/max doğrulama
+    if (pricing.minPackages && count < pricing.minPackages) {
+      toast(`En az ${pricing.minPackages} paket satın alabilirsiniz.`);
       return;
     }
-    if (pricing.maxPackages && packageCount > pricing.maxPackages) {
-      resetInfoSoon(`En fazla ${pricing.maxPackages} paket satın alabilirsiniz.`);
+    if (pricing.maxPackages && count > pricing.maxPackages) {
+      toast(`En fazla ${pricing.maxPackages} paket satın alabilirsiniz.`);
+      return;
+    }
+
+    if (paymentMethod !== PaymentMethod.CreditCard) {
+      toast('Şimdilik PayTR entegrasyonu için kredi kartı seçeneğini kullanıyoruz.');
+      return;
+    }
+
+    // basit alan doğrulamaları
+    if (!email || !nameOnCard || !cardNo || !expMonth || !expYear || !cvv) {
+      toast('Lütfen kart ve iletişim bilgilerini doldurun.');
       return;
     }
 
     setSubmitting(true);
-    setInfo(null);
+    try {
+      // sepet: ["Ürün adı", "Birim fiyat", "Adet"]
+      const basket_json = JSON.stringify([[`Paket Kredisi (${count})`, String(unit), count]]);
 
-    // (Gerçekte: backend’e POST -> ödeme linki dönsün)
-    const paymentUrl = simulatePaymentLink(total);
+      // restaurant id’yi JWT içindeki userId’den backend zaten biliyor; burada bilgi amaçlı id alanına da gönderebiliriz.
+      // user_ip: tarayıcıdan gerçek ip alınamaz; backend gerekirse X-Forwarded-For kullanır.
+      const body = {
+        id: crypto.randomUUID(),                   // referans/id
+        merchant_oid: `PKT-${Date.now()}`,        // benzersiz sipariş no
+        email,
+        payment_amount: total,
+        currency: 'TL',
+        user_ip: '127.0.0.1',
+        installment_count: 0,
+        no_installment: 1,
+        basket_json,
+        lang: 'tr',
+        test_mode: 1,                              // test ortamı
+        non_3d: 0,
 
-    // Demo: “ödeme sayfasına yönlendirme” etkisi
-    setTimeout(() => {
-      const row: PurchaseRow = {
-        id: crypto.randomUUID(),
-        createdAt: new Date(),
-        packageCount,
-        unitPrice: unitPriceTRY,
-        totalPaid: total,
-        paymentMethod,
-        status: 'pending',
-        mockPaymentUrl: paymentUrl,
+        cc_owner: nameOnCard,
+        card_number: cardNo.replace(/\s+/g, ''),
+        expiry_month: expMonth,
+        expiry_year: expYear,
+        cvv,
+
+        user_name: userName || nameOnCard,
+        user_address: userAddress || 'Türkiye',
+        user_phone: userPhone || '',
       };
-      setPurchases(prev => [row, ...prev]);
-      setSubmitting(false);
-      setInfo('Ödeme sayfasına yönlendiriliyorsunuz (DEMO).');
 
-      // İstersen gerçekten yeni sekmede aç:
-      // window.open(paymentUrl, '_blank', 'noopener,noreferrer');
-    }, 900);
+      const res = await fetch('/yuksi/Paytr/Init', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify(body),
+      });
+      const j = await readJson<any>(res);
+      if (!res.ok) throw new Error(pickMsg(j, `HTTP ${res.status}`));
+
+      // backend’in döndürdüğü anahtar isim değişebileceği için esnek yakala
+      const token =
+        j?.token || j?.payment_token || j?.data?.token || j?.data?.payment_token;
+      if (!token || typeof token !== 'string') {
+        throw new Error('Ödeme token alınamadı.');
+      }
+
+      // PayTR güvenli sayfayı yeni pencerede aç
+      window.open(`https://www.paytr.com/odeme/guvenli/${token}`, '_blank', 'noopener,noreferrer');
+      toast('Ödeme sayfası açıldı. Ödeme sonucunuz kısa süre sonra yansıyacaktır.');
+    } catch (e: any) {
+      toast(e?.message || 'Ödeme başlatılamadı.');
+    } finally {
+      setSubmitting(false);
+    }
   }
+
+  const formDisabled = loading || !!error || !pricing;
 
   return (
     <div className="space-y-6">
-      {/* Başlık */}
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold tracking-tight">Paket Satın Al</h1>
-        <div className="text-sm text-neutral-500">Panel: {role}</div>
-      </div>
+      <h1 className="text-2xl font-semibold tracking-tight">Paket Satın Al</h1>
 
-      {/* Anlaşmalı fiyat bilgisi */}
+      {/* fiyat paneli */}
       <section className="rounded-2xl border border-neutral-200/70 bg-white p-4 shadow-sm">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <div className="text-sm text-neutral-600">Bu işletme için anlaşmalı birim fiyat</div>
-            <div className="mt-1 text-2xl font-bold text-neutral-900">
-              {fmtCurrency(pricing.unitPriceTRY)} <span className="text-sm font-medium text-neutral-500">/ paket</span>
+        {loading && <div className="text-sm text-neutral-600">Fiyat yükleniyor…</div>}
+        {!loading && error && <div className="text-sm text-rose-600">{error}</div>}
+        {!loading && !error && pricing && (
+          <div className="flex flex-col gap-1">
+            <div className="text-sm text-neutral-600">Anlaşmalı birim fiyat</div>
+            <div className="text-2xl font-bold">{fmtTRY(pricing.unitPriceTRY)} <span className="text-sm font-medium text-neutral-500">/ paket</span></div>
+            <div className="text-xs text-neutral-600">
+              {pricing.minPackages ? <>En az <b>{pricing.minPackages}</b> paket</> : 'En az sınır yok'}
+              {pricing.maxPackages ? <> • En fazla <b>{pricing.maxPackages}</b> paket</> : null}
             </div>
-            {pricing.minPackages ? (
-              <div className="mt-1 text-xs text-neutral-600">En az {pricing.minPackages} paket</div>
-            ) : null}
-          </div>
-
-          {/* DEMO: hızlı değiştir (gerçekte adminden gelir) */}
-          <div className="text-xs text-neutral-500">
-            DEMO: <button
-              className="rounded-lg border px-2 py-1 hover:bg-neutral-50"
-              onClick={() => setPricing(p => ({ ...p, unitPriceTRY: p.unitPriceTRY === 80 ? 90 : 80 }))}
-            >
-              Birim fiyatı {pricing.unitPriceTRY === 80 ? '90' : '80'} TL yap
-            </button>
-          </div>
-        </div>
-      </section>
-
-      {/* Satın alma & özet */}
-      <div className="grid gap-6 lg:grid-cols-3">
-        {/* Form */}
-        <section className="lg:col-span-2 rounded-2xl border border-neutral-200/70 bg-white p-4 shadow-sm">
-          <h2 className="mb-3 text-lg font-semibold">Satın Alma</h2>
-          <form onSubmit={submitDemo} className="space-y-4">
-            <div className="grid gap-4 sm:grid-cols-3">
-              <div className="sm:col-span-1">
-                <label className="mb-1 block text-sm font-medium text-neutral-700">Paket Adedi</label>
-                <input
-                  type="number"
-                  min={pricing.minPackages || 1}
-                  value={packageCount}
-                  onChange={(e) => setPackageCount(Math.max(pricing.minPackages || 1, Number(e.target.value || 1)))}
-                  className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none focus:ring-2 focus:ring-sky-200"
-                />
-              </div>
-
-              <div className="sm:col-span-2">
-                <label className="mb-1 block text-sm font-medium text-neutral-700">Ödeme Yöntemi</label>
-                <div className="grid grid-cols-3 gap-2">
-                  <label className="flex items-center gap-2 text-sm">
-                    <input
-                      type="radio"
-                      name="payment"
-                      checked={paymentMethod === PaymentMethod.CreditCard}
-                      onChange={() => setPaymentMethod(PaymentMethod.CreditCard)}
-                    />
-                    <span>Kredi Kartı</span>
-                  </label>
-                  <label className="flex items-center gap-2 text-sm">
-                    <input
-                      type="radio"
-                      name="payment"
-                      checked={paymentMethod === PaymentMethod.Transfer}
-                      onChange={() => setPaymentMethod(PaymentMethod.Transfer)}
-                    />
-                    <span>Havale / EFT</span>
-                  </label>
-                  <label className="flex items-center gap-2 text-sm">
-                    <input
-                      type="radio"
-                      name="payment"
-                      checked={paymentMethod === PaymentMethod.Cash}
-                      onChange={() => setPaymentMethod(PaymentMethod.Cash)}
-                    />
-                    <span>Nakit</span>
-                  </label>
-                </div>
-              </div>
-            </div>
-
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div>
-                <label className="mb-1 block text-sm font-medium text-neutral-700">Kupon</label>
-                <input
-                  value={coupon}
-                  onChange={(e) => setCoupon(e.target.value)}
-                  placeholder="Örn: YUKSI10"
-                  className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none focus:ring-2 focus:ring-sky-200"
-                />
-                {discountRate > 0 && (
-                  <div className="mt-1 text-xs text-emerald-600">%10 indirim uygulandı.</div>
-                )}
-              </div>
-              <div>
-                <label className="mb-1 block text-sm font-medium text-neutral-700">Not (opsiyonel)</label>
-                <input
-                  value={note}
-                  onChange={(e) => setNote(e.target.value)}
-                  placeholder="Siparişe dair açıklama…"
-                  className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none focus:ring-2 focus:ring-sky-200"
-                />
-              </div>
-            </div>
-
-            {/* Özet */}
-            <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-3 text-sm">
-              <div className="flex items-center justify-between">
-                <span>Birim Fiyat</span>
-                <span className="font-medium">{fmtCurrency(unitPriceTRY)} / paket</span>
-              </div>
-              <div className="mt-1 flex items-center justify-between">
-                <span>Adet</span>
-                <span className="font-medium">{packageCount}</span>
-              </div>
-              <div className="mt-1 flex items-center justify-between">
-                <span>Ara Toplam</span>
-                <span className="font-medium">{fmtCurrency(subtotal)}</span>
-              </div>
-              <div className="mt-1 flex items-center justify-between">
-                <span>İndirim</span>
-                <span className="font-medium">{discount > 0 ? `– ${fmtCurrency(discount)}` : '-'}</span>
-              </div>
-              <div className="mt-2 flex items-center justify-between border-t pt-2 text-base">
-                <span className="font-semibold">Genel Toplam</span>
-                <span className="font-bold">{fmtCurrency(total)}</span>
-              </div>
-            </div>
-
-            <button
-              type="submit"
-              disabled={submitting || packageCount <= 0}
-              className="w-full rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-indigo-700 disabled:opacity-60"
-            >
-              {submitting ? 'İşlem yapılıyor…' : 'Satın Al (Demo)'}
-            </button>
-
-            {info && (
-              <div className="rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-700">
-                {info}
+            {(pricing.note || pricing.updatedAt) && (
+              <div className="text-xs text-neutral-500">
+                {pricing.note ? <>Not: {pricing.note} • </> : null}
+                Güncelleme: {fmtISO(pricing.updatedAt)}
               </div>
             )}
-          </form>
-        </section>
+          </div>
+        )}
+      </section>
 
-        {/* Bilgilendirme kutusu */}
-        <section className="rounded-2xl border border-neutral-200/70 bg-white p-4 shadow-sm">
-          <h2 className="mb-2 text-lg font-semibold">Nasıl Çalışır?</h2>
-          <ul className="list-disc space-y-1 pl-5 text-sm text-neutral-700">
-            <li>Her işletmenin <strong>anlaşmalı birim fiyatı</strong> farklı olabilir (admin panelinden tanımlanır).</li>
-            <li>Bu ekranda yalnızca <strong>paket adedi</strong> seçilir; toplam tutar otomatik hesaplanır.</li>
-            <li>“Satın Al” sonrası ödeme sayfasına yönlendirilirsiniz (demo linki oluşturulur).</li>
-          </ul>
-        </section>
-      </div>
+      {/* satın alma formu */}
+      <section className="rounded-2xl border border-neutral-200/70 bg-white p-4 shadow-sm">
+        <h2 className="mb-3 text-lg font-semibold">Satın Alma</h2>
 
-      {/* Satın alımlar (Demo) */}
-      <section className="rounded-2xl border border-neutral-200/70 bg-white shadow-sm">
-        <div className="p-4">
-          <h2 className="text-lg font-semibold">Satın Alımlarım (Demo)</h2>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="min-w-full border-t border-neutral-200/70">
-            <thead>
-              <tr className="text-left text-sm text-neutral-500">
-                <th className="px-4 py-3 font-medium">Tarih</th>
-                <th className="px-4 py-3 font-medium">Adet</th>
-                <th className="px-4 py-3 font-medium">Birim</th>
-                <th className="px-4 py-3 font-medium">Toplam</th>
-                <th className="px-4 py-3 font-medium">Ödeme</th>
-                <th className="px-4 py-3 font-medium">Durum</th>
-                <th className="px-4 py-3 font-medium"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {purchases.length === 0 && (
-                <tr>
-                  <td colSpan={7} className="px-6 py-10 text-center text-sm text-neutral-500">
-                    Henüz satın alma yok.
-                  </td>
-                </tr>
-              )}
-              {purchases.map((r) => (
-                <tr key={r.id} className="border-t border-neutral-200/70">
-                  <td className="px-4 py-3">{fmtDate(r.createdAt)}</td>
-                  <td className="px-4 py-3">{r.packageCount}</td>
-                  <td className="px-4 py-3">{fmtCurrency(r.unitPrice)}</td>
-                  <td className="px-4 py-3">{fmtCurrency(r.totalPaid)}</td>
-                  <td className="px-4 py-3">
-                    {r.paymentMethod === PaymentMethod.CreditCard ? 'Kredi Kartı'
-                      : r.paymentMethod === PaymentMethod.Transfer ? 'Havale/EFT' : 'Nakit'}
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
-                      r.status === 'pending' ? 'bg-amber-100 text-amber-800'
-                        : r.status === 'paid' ? 'bg-emerald-100 text-emerald-700'
-                        : 'bg-rose-100 text-rose-700'
-                    }`}>
-                      {r.status}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <a
-                      href={r.mockPaymentUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="rounded-lg bg-sky-500 px-3 py-1.5 text-sm font-semibold text-white hover:bg-sky-600"
-                    >
-                      Ödeme Linki (Demo)
-                    </a>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <form onSubmit={startPayment} className="space-y-4">
+          <div className="grid gap-4 sm:grid-cols-3">
+            <div>
+              <label className="mb-1 block text-sm font-medium text-neutral-700">Paket Adedi</label>
+              <input
+                type="number"
+                min={pricing?.minPackages || 1}
+                max={pricing?.maxPackages ?? undefined}
+                value={count}
+                onChange={(e) => {
+                  const raw = Number(e.target.value || 0);
+                  const min = pricing?.minPackages || 1;
+                  const max = pricing?.maxPackages ?? Infinity;
+                  setCount(Math.max(min, Math.min(raw, max)));
+                }}
+                disabled={formDisabled}
+                className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none focus:ring-2 focus:ring-sky-200 disabled:bg-neutral-100"
+              />
+              <div className="mt-1 text-xs text-neutral-600">
+                Toplam: <b>{fmtTRY(unit * count)}</b>
+              </div>
+            </div>
+
+            <div className="sm:col-span-2">
+              <label className="mb-1 block text-sm font-medium text-neutral-700">Ödeme Yöntemi</label>
+              <div className="grid grid-cols-3 gap-2">
+                <label className="flex items-center gap-2 text-sm">
+                  <input type="radio" name="pay" checked={paymentMethod === PaymentMethod.CreditCard}
+                    onChange={() => setPaymentMethod(PaymentMethod.CreditCard)} disabled={formDisabled} />
+                  <span>Kredi Kartı (PayTR)</span>
+                </label>
+                <label className="flex items-center gap-2 text-sm opacity-60">
+                  <input type="radio" name="pay" disabled />
+                  <span>Havale/EFT</span>
+                </label>
+                <label className="flex items-center gap-2 text-sm opacity-60">
+                  <input type="radio" name="pay" disabled />
+                  <span>Nakit</span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          {/* PayTR için gerekli alanlar */}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-sm font-medium text-neutral-700">E-posta</label>
+              <input value={email} onChange={(e) => setEmail(e.target.value)}
+                placeholder="ornek@mail.com" disabled={formDisabled}
+                className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none focus:ring-2 focus:ring-sky-200 disabled:bg-neutral-100" />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-neutral-700">Kart Üzerindeki İsim</label>
+              <input value={nameOnCard} onChange={(e) => setNameOnCard(e.target.value)}
+                disabled={formDisabled}
+                className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none focus:ring-2 focus:ring-sky-200 disabled:bg-neutral-100" />
+            </div>
+
+            <div>
+              <label className="mb-1 block text-sm font-medium text-neutral-700">Kart Numarası</label>
+              <input value={cardNo} onChange={(e) => setCardNo(e.target.value)}
+                placeholder="4111 1111 1111 1111" disabled={formDisabled}
+                className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none focus:ring-2 focus:ring-sky-200 disabled:bg-neutral-100" />
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              <div>
+                <label className="mb-1 block text-sm font-medium text-neutral-700">Ay (AA)</label>
+                <input value={expMonth} onChange={(e) => setExpMonth(e.target.value)} placeholder="12"
+                  disabled={formDisabled}
+                  className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none focus:ring-2 focus:ring-sky-200 disabled:bg-neutral-100" />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-neutral-700">Yıl (YY)</label>
+                <input value={expYear} onChange={(e) => setExpYear(e.target.value)} placeholder="27"
+                  disabled={formDisabled}
+                  className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none focus:ring-2 focus:ring-sky-200 disabled:bg-neutral-100" />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-neutral-700">CVV</label>
+                <input value={cvv} onChange={(e) => setCvv(e.target.value)} placeholder="000"
+                  disabled={formDisabled}
+                  className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none focus:ring-2 focus:ring-sky-200 disabled:bg-neutral-100" />
+              </div>
+            </div>
+
+            <div>
+              <label className="mb-1 block text-sm font-medium text-neutral-700">Ad Soyad</label>
+              <input value={userName} onChange={(e) => setUserName(e.target.value)}
+                disabled={formDisabled}
+                className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none focus:ring-2 focus:ring-sky-200 disabled:bg-neutral-100" />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-neutral-700">Telefon</label>
+              <input value={userPhone} onChange={(e) => setUserPhone(e.target.value)}
+                placeholder="05xx xxx xx xx" disabled={formDisabled}
+                className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none focus:ring-2 focus:ring-sky-200 disabled:bg-neutral-100" />
+            </div>
+            <div className="sm:col-span-2">
+              <label className="mb-1 block text-sm font-medium text-neutral-700">Adres</label>
+              <input value={userAddress} onChange={(e) => setUserAddress(e.target.value)}
+                disabled={formDisabled}
+                className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none focus:ring-2 focus:ring-sky-200 disabled:bg-neutral-100" />
+            </div>
+          </div>
+
+          <button
+            type="submit"
+            disabled={formDisabled || submitting || count <= 0}
+            className="w-full rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-indigo-700 disabled:opacity-60"
+          >
+            {submitting ? 'İşlem yapılıyor…' : `Öde (${fmtTRY(total)})`}
+          </button>
+
+          {info && (
+            <div className="rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-700">
+              {info}
+            </div>
+          )}
+        </form>
       </section>
     </div>
   );

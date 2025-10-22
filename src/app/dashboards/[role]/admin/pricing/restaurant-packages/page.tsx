@@ -1,12 +1,12 @@
-// src/app/dashboards/[role]/admin/pricing/restaurant-packages/page.tsx
 'use client';
 
 import * as React from 'react';
 import { useParams } from 'next/navigation';
+import { X } from 'lucide-react';
+import { getAuthToken } from '@/utils/auth';
 
 /* ================= helpers ================= */
-type Currency = 'TRY';
-type SortKey = 'name' | 'unitPrice' | 'updatedAt';
+type SortKey = 'restaurant' | 'unitPrice' | 'updatedAt';
 
 function fmtTRY(n: number) {
   return n.toLocaleString('tr-TR', { style: 'currency', currency: 'TRY', maximumFractionDigits: 0 });
@@ -19,199 +19,226 @@ function fmtDate(iso?: string | null) {
 function cls(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(' ');
 }
-function getAuthToken(): string | null {
-  try {
-    const ls = localStorage.getItem('auth_token');
-    if (ls) return ls;
-  } catch {}
-  if (typeof document !== 'undefined') {
-    const m = document.cookie.match(/(?:^|;\s*)auth_token=([^;]+)/);
-    if (m) return decodeURIComponent(m[1]);
-  }
-  return null;
+async function readJson<T = any>(res: Response): Promise<T> {
+  const t = await res.text();
+  try { return t ? JSON.parse(t) : (null as any); } catch { return (t as any); }
 }
+const pickMsg = (d: any, fb: string) =>
+  d?.error?.message || d?.message || d?.detail || d?.title || fb;
 
-/* ================= types ================= */
-type RestaurantRow = {
-  id: string;                         // restaurant UUID
-  name: string;
-  email?: string | null;
-  contact?: string | null;
-
-  // negotiated pricing:
-  unitPriceTRY: number;               // agreed unit price PER PACKAGE (TRY)
-  currency: Currency;                 // TRY
-  minPackages?: number | null;
-  maxPackages?: number | null;
-
+/* ================= API types ================= */
+type PackagePriceRow = {
+  id: number;
+  restaurant_id: string;     // uuid
+  unit_price: number;        // TRY
+  min_package?: number | null;
+  max_package?: number | null;
   note?: string | null;
-  updatedAt?: string | null;          // ISO
+  updated_at?: string | null; // ISO
 };
 
-/* ================= demo datasource =================
-   Gerçekte:
-   - GET   /api/Admin/Pricing/list
-   - PATCH /api/Admin/Pricing/{restaurant_id}
-   - POST  /api/Admin/Pricing/bulk_set_default
-   - vs.
-   Aşağıda localStorage üzerinde bir koleksiyon simülasyonu var.
-=====================================================*/
-const LS_KEY = 'demo_restaurant_pricing_v1';
+type ListResponse = {
+  success?: boolean;
+  message?: string;
+  data?: PackagePriceRow[];
+};
 
-function seedDemo(): RestaurantRow[] {
-  return [
-    { id: crypto.randomUUID(), name: 'Berkay Kebap', email: 'berkay@kebap.com', contact: '0532 000 00 00', unitPriceTRY: 80, currency: 'TRY', minPackages: 10, note: 'Açılış promosyonu', updatedAt: new Date().toISOString() },
-    { id: crypto.randomUUID(), name: 'Yemekhanem', email: 'info@yemekhanem.com', unitPriceTRY: 90, currency: 'TRY', minPackages: 10, updatedAt: new Date().toISOString() },
-    { id: crypto.randomUUID(), name: 'Pideci Usta', email: 'info@pideci.com', unitPriceTRY: 85, currency: 'TRY', minPackages: 20, note: '', updatedAt: new Date().toISOString() },
-    { id: crypto.randomUUID(), name: 'Sushi Park', email: 'hello@sushipark.com', unitPriceTRY: 110, currency: 'TRY', minPackages: 10, updatedAt: new Date().toISOString() },
-  ];
-}
-
-function loadLS(): RestaurantRow[] {
-  try {
-    const raw = localStorage.getItem(LS_KEY);
-    if (!raw) {
-      const s = seedDemo();
-      localStorage.setItem(LS_KEY, JSON.stringify(s));
-      return s;
-    }
-    const arr = JSON.parse(raw) as RestaurantRow[];
-    return Array.isArray(arr) ? arr : seedDemo();
-  } catch {
-    const s = seedDemo();
-    try { localStorage.setItem(LS_KEY, JSON.stringify(s)); } catch {}
-    return s;
-  }
-}
-function saveLS(rows: RestaurantRow[]) {
-  try { localStorage.setItem(LS_KEY, JSON.stringify(rows)); } catch {}
-}
+type RestaurantListItem = {
+  id: string;
+  name?: string | null;
+  email?: string | null;
+  contactPerson?: string | null;
+};
 
 /* ================= page ================= */
 export default function AdminRestaurantPackagePricingPage() {
   const { role } = useParams<{ role: string }>();
-  const token = React.useMemo(() => getAuthToken(), []);
-  // token'i gerçek çağrılarda headers.authorization için kullanacaksın.
 
-  const [rows, setRows] = React.useState<RestaurantRow[]>([]);
-  const [q, setQ] = React.useState('');
-  const [sort, setSort] = React.useState<SortKey>('name');
-  const [asc, setAsc] = React.useState(true);
-  const [page, setPage] = React.useState(1);
-  const [pageSize, setPageSize] = React.useState(10);
-  const [editing, setEditing] = React.useState<RestaurantRow | null>(null);
-  const [bulkDefault, setBulkDefault] = React.useState<number>(80);
-  const [info, setInfo] = React.useState<string | null>(null);
-
+  // token sadece client'ta
+  const [token, setToken] = React.useState<string | null>(null);
   React.useEffect(() => {
-    setRows(loadLS());
+    setToken(getAuthToken());
   }, []);
 
+  const authHeaders = React.useMemo<HeadersInit>(() => {
+    const h: HeadersInit = { Accept: 'application/json' };
+    if (token) (h as any).Authorization = `Bearer ${token}`;
+    return h;
+  }, [token]);
+
+  const [rows, setRows] = React.useState<PackagePriceRow[]>([]);
+  const [loading, setLoading] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+
+  // 🔽 restoran isim haritası
+  const [restaurantMap, setRestaurantMap] = React.useState<Record<string, string>>({});
+  const [rLoading, setRLoading] = React.useState(false);
+  const [rError, setRError] = React.useState<string | null>(null);
+
+  const [q, setQ] = React.useState('');
+  const [sort, setSort] = React.useState<SortKey>('updatedAt');
+  const [asc, setAsc] = React.useState(false);
+
+  const [info, setInfo] = React.useState<string | null>(null);
+
+  const [creatingOpen, setCreatingOpen] = React.useState(false);
+  const [editing, setEditing] = React.useState<PackagePriceRow | null>(null);
+
+  /* ------------ restoran listesi (id->isim) ------------ */
+  const loadRestaurants = React.useCallback(async () => {
+    setRLoading(true); setRError(null);
+    try {
+      const res = await fetch('/yuksi/Restaurant/list', { headers: authHeaders, cache: 'no-store' });
+      const data = await readJson<any>(res);
+      if (!res.ok) throw new Error(pickMsg(data, `HTTP ${res.status}`));
+      const arr: any[] = Array.isArray(data?.data) ? data.data : (Array.isArray(data) ? data : []);
+      const map: Record<string, string> = {};
+      for (const x of arr) {
+        const id = String(x?.id || '');
+        if (!id) continue;
+        const name = String(x?.name ?? '').trim() || '(İsimsiz restoran)';
+        map[id] = name;
+      }
+      setRestaurantMap(map);
+    } catch (e: any) {
+      setRError(e?.message || 'Restoran listesi alınamadı.');
+      setRestaurantMap({});
+    } finally {
+      setRLoading(false);
+    }
+  }, [authHeaders]);
+
+  /* ------------ fiyat listesi ------------ */
+  const loadList = React.useCallback(async () => {
+    setLoading(true); setError(null);
+    try {
+      const res = await fetch('/yuksi/PackagePrice/list', { cache: 'no-store', headers: authHeaders });
+      const j = await readJson<ListResponse>(res);
+      if (!res.ok || (j && (j as any).success === false)) throw new Error(pickMsg(j, `HTTP ${res.status}`));
+      const list = Array.isArray(j?.data) ? j!.data! : Array.isArray(j) ? (j as any as PackagePriceRow[]) : [];
+      setRows(list);
+    } catch (e: any) {
+      setError(e?.message || 'Liste alınamadı.');
+      setRows([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [authHeaders]);
+
+  React.useEffect(() => {
+    if (!token) return;
+    // iki çağrıyı paralel başlat
+    loadRestaurants();
+    loadList();
+  }, [token, loadList, loadRestaurants]);
+
+  /* ------------ derived ------------ */
   const filtered = React.useMemo(() => {
     const qq = q.trim().toLowerCase();
     let arr = !qq
       ? rows
-      : rows.filter(r =>
-          [r.name, r.email || '', r.contact || ''].join(' ').toLowerCase().includes(qq),
-        );
+      : rows.filter(r => {
+          const name = restaurantMap[r.restaurant_id] || '';
+          return [r.restaurant_id, name, r.note || ''].join(' ').toLowerCase().includes(qq);
+        });
+
     arr = [...arr].sort((a, b) => {
       const dir = asc ? 1 : -1;
-      if (sort === 'name') return a.name.localeCompare(b.name) * dir;
-      if (sort === 'unitPrice') return (a.unitPriceTRY - b.unitPriceTRY) * dir;
+      if (sort === 'restaurant') {
+        const an = restaurantMap[a.restaurant_id] || a.restaurant_id;
+        const bn = restaurantMap[b.restaurant_id] || b.restaurant_id;
+        return an.localeCompare(bn, 'tr') * dir;
+      }
+      if (sort === 'unitPrice') return (a.unit_price - b.unit_price) * dir;
       if (sort === 'updatedAt') {
-        const ta = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
-        const tb = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
+        const ta = a.updated_at ? new Date(a.updated_at).getTime() : 0;
+        const tb = b.updated_at ? new Date(b.updated_at).getTime() : 0;
         return (ta - tb) * dir;
       }
       return 0;
     });
+
     return arr;
-  }, [rows, q, sort, asc]);
-
-  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
-  const pageRows = React.useMemo(
-    () => filtered.slice((page - 1) * pageSize, page * pageSize),
-    [filtered, page, pageSize],
-  );
-
-  function onSaveEdit(next: RestaurantRow) {
-    setRows(prev => {
-      const updated = prev.map(r => (r.id === next.id ? next : r));
-      saveLS(updated);
-      return updated;
-    });
-    setEditing(null);
-    toast('Fiyat güncellendi (DEMO).');
-  }
-
-  function applyBulkDefault() {
-    setRows(prev => {
-      const updated = prev.map(r => ({
-        ...r,
-        unitPriceTRY: bulkDefault,
-        updatedAt: new Date().toISOString(),
-      }));
-      saveLS(updated);
-      return updated;
-    });
-    toast(`Tüm restoranlara ${fmtTRY(bulkDefault)} birim fiyat atandı (DEMO).`);
-  }
+  }, [rows, q, sort, asc, restaurantMap]);
 
   function toast(s: string) {
     setInfo(s);
     setTimeout(() => setInfo(null), 2500);
   }
 
+  /* ------------ CRUD helpers ------------ */
+  async function createPrice(p: {
+    restaurant_id: string;
+    unit_price: number;
+    min_package?: number | null;
+    max_package?: number | null;
+    note?: string | null;
+  }) {
+    const body = {
+      restaurant_id: p.restaurant_id,
+      unit_price: p.unit_price,
+      min_package: p.min_package ?? null,
+      max_package: p.max_package ?? null,
+      note: p.note ?? null,
+    };
+    const res = await fetch('/yuksi/PackagePrice/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
+      body: JSON.stringify(body),
+    });
+    const j = await readJson(res);
+    if (!res.ok || (j && (j as any).success === false)) throw new Error(pickMsg(j, `HTTP ${res.status}`));
+  }
+
+  async function updatePrice(id: number, p: {
+    restaurant_id: string;
+    unit_price: number;
+    min_package?: number | null;
+    max_package?: number | null;
+    note?: string | null;
+  }) {
+    const body = {
+      restaurant_id: p.restaurant_id,
+      unit_price: p.unit_price,
+      min_package: p.min_package ?? null,
+      max_package: p.max_package ?? null,
+      note: p.note ?? null,
+    };
+    const res = await fetch(`/yuksi/PackagePrice/update/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
+      body: JSON.stringify(body),
+    });
+    const j = await readJson(res);
+    if (!res.ok || (j && (j as any).success === false)) throw new Error(pickMsg(j, `HTTP ${res.status}`));
+  }
+
+  async function deleteByRestaurant(restaurant_id: string) {
+    const res = await fetch(`/yuksi/PackagePrice/delete/${restaurant_id}`, {
+      method: 'DELETE',
+      headers: authHeaders,
+    });
+    const j = await readJson(res);
+    if (!res.ok || (j && (j as any).success === false)) throw new Error(pickMsg(j, `HTTP ${res.status}`));
+  }
+
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold tracking-tight">Paket Fiyatları (Admin)</h1>
-        <div className="text-sm text-neutral-500">Panel: {role} {token ? '• auth hazır' : ''}</div>
-      </div>
-
       {/* Top actions */}
       <section className="rounded-2xl border border-neutral-200/70 bg-white shadow-sm">
-        <div className="grid gap-3 p-4 md:grid-cols-3">
-          <div className="md:col-span-2">
-            <input
-              value={q}
-              onChange={(e) => { setQ(e.target.value); setPage(1); }}
-              placeholder="Ara: restoran adı, e-posta, kişi…"
-              className="w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 text-neutral-800 outline-none ring-2 ring-transparent transition placeholder:text-neutral-400 focus:bg-white focus:ring-sky-200"
-            />
-          </div>
-          <div className="flex items-center gap-2">
-            <label className="text-sm text-neutral-600">Sayfa Boyutu</label>
-            <select
-              value={pageSize}
-              onChange={(e) => setPageSize(Number(e.target.value))}
-              className="rounded-lg border border-neutral-300 bg-neutral-100 px-3 py-2 text-sm"
-            >
-              {[10, 20, 50].map(n => <option key={n} value={n}>{n}</option>)}
-            </select>
-          </div>
-        </div>
-
-        {/* Bulk default */}
-        <div className="flex flex-col gap-3 border-t p-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="text-sm text-neutral-700">
-            Tüm restoranlara varsayılan **birim paket fiyatı** ata (DEMO).
-          </div>
-          <div className="flex items-center gap-2">
-            <input
-              type="number"
-              min={1}
-              value={bulkDefault}
-              onChange={(e) => setBulkDefault(Math.max(1, Number(e.target.value || 1)))}
-              className="w-28 rounded-xl border border-neutral-300 bg-white px-3 py-2 text-right outline-none focus:ring-2 focus:ring-sky-200"
-            />
-            <span className="text-sm">TL / paket</span>
+        <div className="grid gap-3 p-4 md:grid-cols-[minmax(280px,1fr)_auto]">
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Ara: restoran adı/ID, not…"
+            className="w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 text-neutral-800 outline-none ring-2 ring-transparent transition placeholder:text-neutral-400 focus:bg-white focus:ring-sky-200"
+          />
+          <div className="flex items-center justify-end">
             <button
-              onClick={applyBulkDefault}
-              className="rounded-xl bg-indigo-600 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
+              onClick={() => setCreatingOpen(true)}
+              className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
             >
-              Uygula (Demo)
+              Yeni Fiyat Kaydı
             </button>
           </div>
         </div>
@@ -223,67 +250,95 @@ export default function AdminRestaurantPackagePricingPage() {
           <table className="min-w-full border-t border-neutral-200/70">
             <thead>
               <tr className="text-left text-sm text-neutral-500">
-                <Th label="Restoran" active={sort==='name'} onClick={() => { setSort('name'); setAsc(s => sort==='name' ? !s : true); }} />
-                <th className="px-4 py-3 font-medium">E-posta</th>
-                <Th label="Birim Fiyat" active={sort==='unitPrice'} onClick={() => { setSort('unitPrice'); setAsc(s => sort==='unitPrice' ? !s : true); }} />
+                <Th
+                  label="Restoran"
+                  active={sort === 'restaurant'}
+                  onClick={() => { setSort('restaurant'); setAsc(s => sort === 'restaurant' ? !s : true); }}
+                />
+                <Th
+                  label="Birim Fiyat"
+                  active={sort === 'unitPrice'}
+                  onClick={() => { setSort('unitPrice'); setAsc(s => sort === 'unitPrice' ? !s : true); }}
+                />
                 <th className="px-4 py-3 font-medium">Min/Max</th>
-                <Th label="Güncelleme" active={sort==='updatedAt'} onClick={() => { setSort('updatedAt'); setAsc(s => sort==='updatedAt' ? !s : true); }} />
-                <th className="px-4 py-3 font-medium w-[120px]"></th>
+                <Th
+                  label="Güncelleme"
+                  active={sort === 'updatedAt'}
+                  onClick={() => { setSort('updatedAt'); setAsc(s => sort === 'updatedAt' ? !s : true); }}
+                />
+                <th className="px-4 py-3 font-medium">Not</th>
+                <th className="px-4 py-3 font-medium w-[160px]"></th>
               </tr>
             </thead>
             <tbody>
-              {pageRows.length === 0 && (
+              {(loading || rLoading) && (
+                <tr>
+                  <td colSpan={6} className="px-6 py-10 text-center text-sm text-neutral-500">Yükleniyor…</td>
+                </tr>
+              )}
+
+              {!loading && !rLoading && filtered.length === 0 && (
                 <tr>
                   <td colSpan={6} className="px-6 py-10 text-center text-sm text-neutral-500">
-                    Kayıt bulunamadı.
+                    Kayıt bulunamadı{rError ? ` • ${rError}` : ''}.
                   </td>
                 </tr>
               )}
-              {pageRows.map(r => (
-                <tr key={r.id} className="border-t border-neutral-200/70 align-top hover:bg-neutral-50">
-                  <td className="px-4 py-3">
-                    <div className="font-semibold text-neutral-900">{r.name}</div>
-                    {r.note ? <div className="mt-0.5 text-xs text-neutral-500">{r.note}</div> : null}
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="text-sm text-neutral-800">{r.email || '-'}</div>
-                    <div className="text-xs text-neutral-500">{r.contact || ''}</div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-100">
-                      {fmtTRY(r.unitPriceTRY)} / paket
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-sm">
-                    {(r.minPackages ?? '-') + ' / ' + (r.maxPackages ?? '-')}
-                  </td>
-                  <td className="px-4 py-3 text-sm">{fmtDate(r.updatedAt)}</td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center justify-end">
-                      <button
-                        onClick={() => setEditing(r)}
-                        className="rounded-lg bg-sky-500 px-3 py-1.5 text-sm font-semibold text-white shadow hover:bg-sky-600"
-                      >
-                        Düzenle
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+
+              {!loading && !rLoading && filtered.map(r => {
+                const name = restaurantMap[r.restaurant_id] || '(Restoran bulunamadı)';
+                return (
+                  <tr key={r.id} className="border-t border-neutral-200/70 align-top hover:bg-neutral-50">
+                    <td className="px-4 py-3">
+                      <div className="font-semibold text-neutral-900">{name}</div>
+                      <div className="font-mono text-[12px] text-neutral-500">{r.restaurant_id}</div>
+                      <div className="text-[11px] text-neutral-400">#{r.id}</div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-100">
+                        {fmtTRY(r.unit_price)} / paket
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-sm">
+                      {(r.min_package ?? '-') + ' / ' + (r.max_package ?? '-')}
+                    </td>
+                    <td className="px-4 py-3 text-sm">{fmtDate(r.updated_at)}</td>
+                    <td className="px-4 py-3 text-sm max-w-[360px] truncate" title={r.note || ''}>
+                      {r.note || '—'}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          onClick={() => setEditing(r)}
+                          className="rounded-lg bg-sky-500 px-3 py-1.5 text-sm font-semibold text-white shadow hover:bg-sky-600"
+                        >
+                          Düzenle
+                        </button>
+                        <button
+                          onClick={async () => {
+                            if (!confirm('Bu restoranın paket fiyat kaydını silmek istiyor musunuz?')) return;
+                            try {
+                              await deleteByRestaurant(r.restaurant_id);
+                              await loadList();
+                              toast('Kayıt silindi.');
+                            } catch (e: any) {
+                              alert(e?.message || 'Silme işlemi başarısız.');
+                            }
+                          }}
+                          className="rounded-lg bg-rose-500 px-3 py-1.5 text-sm font-semibold text-white shadow hover:bg-rose-600"
+                        >
+                          Sil
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
 
-        {/* footer / pager */}
-        <div className="flex items-center justify-between border-t p-4 text-sm text-neutral-600">
-          <div>Toplam <span className="font-medium text-neutral-800">{filtered.length}</span> restoran • Sayfa {page}/{totalPages}</div>
-          <div className="flex items-center gap-2">
-            <button className="rounded-md border px-3 py-1.5 disabled:opacity-50" onClick={() => setPage(1)} disabled={page<=1}>« İlk</button>
-            <button className="rounded-md border px-3 py-1.5 disabled:opacity-50" onClick={() => setPage(p=>Math.max(1,p-1))} disabled={page<=1}>‹ Önceki</button>
-            <button className="rounded-md border px-3 py-1.5 disabled:opacity-50" onClick={() => setPage(p=>Math.min(totalPages,p+1))} disabled={page>=totalPages}>Sonraki ›</button>
-            <button className="rounded-md border px-3 py-1.5 disabled:opacity-50" onClick={() => setPage(totalPages)} disabled={page>=totalPages}>Son »</button>
-          </div>
-        </div>
+        {error && <div className="px-6 py-3 text-sm text-rose-600">{error}</div>}
       </section>
 
       {/* toast */}
@@ -293,12 +348,55 @@ export default function AdminRestaurantPackagePricingPage() {
         </div>
       )}
 
-      {/* edit modal */}
+      {/* Create modal */}
+      {creatingOpen && (
+        <EditModal
+          mode="create"
+          title="Yeni Fiyat Kaydı"
+          initial={{
+            id: 0,
+            restaurant_id: '',
+            unit_price: 80,
+            min_package: 10,
+            max_package: null,
+            note: '',
+          } as PackagePriceRow}
+          authHeaders={authHeaders}
+          onClose={() => setCreatingOpen(false)}
+          onSubmit={async (payload) => {
+            try {
+              await createPrice(payload);
+              setCreatingOpen(false);
+              await loadList();
+              toast('Kayıt oluşturuldu.');
+              // yeni eklenen kayıtta isim görünmesi için tekrar restoran haritasını da tazele
+              await loadRestaurants();
+            } catch (e: any) {
+              alert(e?.message || 'Kayıt oluşturma başarısız.');
+            }
+          }}
+        />
+      )}
+
+      {/* Edit modal */}
       {editing && (
         <EditModal
-          row={editing}
+          mode="edit"
+          title="Fiyatı Düzenle"
+          initial={editing}
+          authHeaders={authHeaders}
           onClose={() => setEditing(null)}
-          onSave={(next) => onSaveEdit(next)}
+          onSubmit={async (payload) => {
+            try {
+              await updatePrice(editing.id, payload);
+              setEditing(null);
+              await loadList();
+              toast('Kayıt güncellendi.');
+              await loadRestaurants();
+            } catch (e: any) {
+              alert(e?.message || 'Güncelleme başarısız.');
+            }
+          }}
         />
       )}
     </div>
@@ -313,62 +411,135 @@ function Th({ label, active, onClick }: { label: string; active?: boolean; onCli
         onClick={onClick}
       >
         {label}
-        <svg width="10" height="10" viewBox="0 0 24 24" className="opacity-60"><path fill="currentColor" d="M7 10l5-5 5 5zM7 14l5 5 5-5z"/></svg>
+        <svg width="10" height="10" viewBox="0 0 24 24" className="opacity-60"><path fill="currentColor" d="M7 10l5-5 5 5zM7 14l5 5 5-5z" /></svg>
       </button>
     </th>
   );
 }
 
-/* =============== Edit Modal =============== */
+/* =============== Edit/Create Modal =============== */
 function EditModal({
-  row,
+  title,
+  initial,
+  mode,
+  authHeaders,
   onClose,
-  onSave,
+  onSubmit,
 }: {
-  row: RestaurantRow;
+  title: string;
+  initial: PackagePriceRow;
+  mode: 'create' | 'edit';
+  authHeaders: HeadersInit;
   onClose: () => void;
-  onSave: (next: RestaurantRow) => void;
+  onSubmit: (payload: {
+    restaurant_id: string;
+    unit_price: number;
+    min_package?: number | null;
+    max_package?: number | null;
+    note?: string | null;
+  }) => Promise<void>;
 }) {
-  const [unitPrice, setUnitPrice] = React.useState<number>(row.unitPriceTRY);
-  const [minP, setMinP] = React.useState<number | ''>(row.minPackages ?? '');
-  const [maxP, setMaxP] = React.useState<number | ''>(row.maxPackages ?? '');
-  const [note, setNote] = React.useState<string>(row.note ?? '');
+  const [restaurantId, setRestaurantId] = React.useState<string>(initial.restaurant_id || '');
+  const [unitPrice, setUnitPrice] = React.useState<number>(initial.unit_price || 80);
+  const [minP, setMinP] = React.useState<number | ''>(initial.min_package ?? '');
+  const [maxP, setMaxP] = React.useState<number | ''>(initial.max_package ?? '');
+  const [note, setNote] = React.useState<string>(initial.note ?? '');
 
-  function submit(e: React.FormEvent) {
+  // yalnızca "create" modunda restoran listesi çek
+  const [rLoading, setRLoading] = React.useState(false);
+  const [rError, setRError] = React.useState<string | null>(null);
+  const [restaurants, setRestaurants] = React.useState<RestaurantListItem[]>([]);
+
+  React.useEffect(() => {
+    if (mode !== 'create') return;
+    let cancelled = false;
+    (async () => {
+      setRLoading(true); setRError(null);
+      try {
+        const res = await fetch('/yuksi/Restaurant/list', { headers: authHeaders, cache: 'no-store' });
+        const data = await readJson<any>(res);
+        if (!res.ok) throw new Error(pickMsg(data, `HTTP ${res.status}`));
+        const arr: any[] = Array.isArray(data?.data) ? data.data : (Array.isArray(data) ? data : []);
+        const mapped: RestaurantListItem[] = arr.map((x) => ({
+          id: String(x?.id || ''),
+          name: x?.name ?? null,
+          email: x?.email ?? null,
+          contactPerson: x?.contactPerson ?? null,
+        })).filter(r => r.id);
+        if (!cancelled) {
+          setRestaurants(mapped);
+          if (!restaurantId && mapped.length > 0) setRestaurantId(mapped[0].id);
+        }
+      } catch (e: any) {
+        if (!cancelled) setRError(e?.message || 'Restoran listesi alınamadı.');
+      } finally {
+        if (!cancelled) setRLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [mode, authHeaders]); // restaurantId dependency değil
+
+  async function submit(e: React.FormEvent) {
     e.preventDefault();
-    const next: RestaurantRow = {
-      ...row,
-      unitPriceTRY: Math.max(1, Math.round(Number(unitPrice || 1))),
-      minPackages: minP === '' ? null : Math.max(1, Number(minP)),
-      maxPackages: maxP === '' ? null : Math.max(1, Number(maxP)),
+    if (!restaurantId || restaurantId.length < 10) {
+      alert('Geçerli bir restoran seçiniz.');
+      return;
+    }
+    await onSubmit({
+      restaurant_id: restaurantId,
+      unit_price: Math.max(1, Math.round(Number(unitPrice || 1))),
+      min_package: minP === '' ? null : Math.max(1, Number(minP)),
+      max_package: maxP === '' ? null : Math.max(1, Number(maxP)),
       note: note.trim() || null,
-      updatedAt: new Date().toISOString(),
-    };
-    onSave(next);
-
-    /** Gerçek entegrasyon (örnek):
-     *  const token = getAuthToken();
-     *  await fetch(`/yuksi/api/Admin/Pricing/${row.id}`, {
-     *    method: 'PATCH',
-     *    headers: { 'Content-Type': 'application/json', Accept: 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-     *    body: JSON.stringify({ unit_price_try: next.unitPriceTRY, min_packages: next.minPackages, max_packages: next.maxPackages, note: next.note }),
-     *  });
-     */
+    });
   }
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4" role="dialog" aria-modal="true">
-      <div className="w-full max-w-xl rounded-2xl bg-white shadow-xl">
+      <div className="w-full max-w-xl overflow-hidden rounded-2xl bg-white shadow-xl">
         <div className="flex items-center justify-between border-b px-5 py-4">
-          <div>
-            <h3 className="text-lg font-semibold">Fiyat Düzenle</h3>
-            <div className="text-xs text-neutral-500">{row.name} • {row.email || '-'}</div>
-          </div>
-          <button className="rounded-full p-2 hover:bg-neutral-100" onClick={onClose} aria-label="Kapat">✕</button>
+          <h3 className="text-lg font-semibold">{title}</h3>
+          <button className="rounded-full p-2 hover:bg-neutral-100" onClick={onClose} aria-label="Kapat">
+            <X className="h-5 w-5" />
+          </button>
         </div>
 
         <form onSubmit={submit} className="space-y-4 p-5">
           <div className="grid gap-4 sm:grid-cols-2">
+            <div className="sm:col-span-2">
+              {mode === 'create' ? (
+                <>
+                  <label className="mb-1 block text-sm font-medium text-neutral-700">Restoran</label>
+                  <select
+                    value={restaurantId}
+                    onChange={(e) => setRestaurantId(e.target.value)}
+                    disabled={rLoading}
+                    className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none focus:ring-2 focus:ring-sky-200"
+                  >
+                    {rLoading && <option value="">Yükleniyor…</option>}
+                    {rError && <option value="">{rError}</option>}
+                    {!rLoading && !rError && restaurants.length === 0 && (
+                      <option value="">Kayıt bulunamadı</option>
+                    )}
+                    {!rLoading && !rError && restaurants.map(r => (
+                      <option key={r.id} value={r.id}>
+                        {r.name || '(İsimsiz)'} — {r.id}
+                      </option>
+                    ))}
+                  </select>
+                </>
+              ) : (
+                <>
+                  <label className="mb-1 block text-sm font-medium text-neutral-700">Restoran ID (UUID)</label>
+                  <input
+                    value={restaurantId}
+                    readOnly
+                    className="w-full rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-2 font-mono text-[13px] text-neutral-700 outline-none"
+                  />
+                </>
+              )}
+            </div>
+
             <div>
               <label className="mb-1 block text-sm font-medium text-neutral-700">Birim Fiyat (TRY)</label>
               <input
@@ -379,6 +550,7 @@ function EditModal({
                 className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none focus:ring-2 focus:ring-sky-200"
               />
             </div>
+
             <div>
               <label className="mb-1 block text-sm font-medium text-neutral-700">Min Paket (opsiyonel)</label>
               <input
@@ -389,6 +561,7 @@ function EditModal({
                 className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none focus:ring-2 focus:ring-sky-200"
               />
             </div>
+
             <div>
               <label className="mb-1 block text-sm font-medium text-neutral-700">Max Paket (opsiyonel)</label>
               <input
@@ -399,6 +572,7 @@ function EditModal({
                 className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none focus:ring-2 focus:ring-sky-200"
               />
             </div>
+
             <div className="sm:col-span-2">
               <label className="mb-1 block text-sm font-medium text-neutral-700">Not (opsiyonel)</label>
               <input
@@ -414,7 +588,7 @@ function EditModal({
               İptal
             </button>
             <button type="submit" className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-emerald-700">
-              Kaydet (Demo)
+              Kaydet
             </button>
           </div>
         </form>
