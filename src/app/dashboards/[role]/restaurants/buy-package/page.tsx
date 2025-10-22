@@ -44,6 +44,11 @@ async function readJson<T = any>(res: Response): Promise<T> {
 const pickMsg = (d: any, fb: string) =>
   d?.error?.message || d?.message || d?.detail || d?.title || fb;
 
+function buildPaytrUrl(token: string) {
+  const path = token.startsWith('/') ? token.slice(1) : token; // "paytr/....html"
+  return `https://www.yuksi.dev/${path}`;
+}
+
 /* ===== Page ===== */
 export default function BuyPackagePage() {
   // token’ı yalnızca client’ta oku
@@ -102,9 +107,7 @@ export default function BuyPackagePage() {
       });
 
       // başlangıç adetini gelen sınırlara oturt
-      const start =
-        (d.max_package ?? null) ??
-        (d.min_package ?? null) ?? 1;
+      const start = (d.max_package ?? null) ?? (d.min_package ?? null) ?? 1;
       setCount((prev) => {
         if (prev === 1) return Math.max(d.min_package ?? 1, Math.min(start, d.max_package ?? start));
         return Math.max(d.min_package ?? 1, Math.min(prev, d.max_package ?? prev));
@@ -122,7 +125,7 @@ export default function BuyPackagePage() {
   const unit = pricing?.unitPriceTRY ?? 0;
   const total = unit * count;
 
-  /* ---- PayTR Init ---- */
+  /* ---- PayTR Init (✅ /yuksi/Paytr/Init) ---- */
   async function startPayment(e: React.FormEvent) {
     e.preventDefault();
     if (!pricing) return;
@@ -150,23 +153,20 @@ export default function BuyPackagePage() {
 
     setSubmitting(true);
     try {
-      // sepet: ["Ürün adı", "Birim fiyat", "Adet"]
+      // sepet formatı: [["Ürün", "1.00", 1]]
       const basket_json = JSON.stringify([[`Paket Kredisi (${count})`, String(unit), count]]);
 
-      // restaurant id’yi JWT içindeki userId’den backend zaten biliyor; burada bilgi amaçlı id alanına da gönderebiliriz.
-      // user_ip: tarayıcıdan gerçek ip alınamaz; backend gerekirse X-Forwarded-For kullanır.
       const body = {
-        id: crypto.randomUUID(),                   // referans/id
-        merchant_oid: `PKT-${Date.now()}`,        // benzersiz sipariş no
+        merchant_oid: `PKT${Date.now()}`,
         email,
-        payment_amount: total,
+        payment_amount: total,  // backend örneğine göre TL (gerekirse kuruşa çevir: total*100)
         currency: 'TL',
         user_ip: '127.0.0.1',
         installment_count: 0,
         no_installment: 1,
         basket_json,
         lang: 'tr',
-        test_mode: 1,                              // test ortamı
+        test_mode: 1,
         non_3d: 0,
 
         cc_owner: nameOnCard,
@@ -180,6 +180,7 @@ export default function BuyPackagePage() {
         user_phone: userPhone || '',
       };
 
+      // Proxy edilmiş backend endpointi
       const res = await fetch('/yuksi/Paytr/Init', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeaders },
@@ -188,15 +189,20 @@ export default function BuyPackagePage() {
       const j = await readJson<any>(res);
       if (!res.ok) throw new Error(pickMsg(j, `HTTP ${res.status}`));
 
-      // backend’in döndürdüğü anahtar isim değişebileceği için esnek yakala
-      const token =
-        j?.token || j?.payment_token || j?.data?.token || j?.data?.payment_token;
-      if (!token || typeof token !== 'string') {
+      // Beklenen yanıt: { status: "success", token: "paytr/..html", reason: null }
+      if (j?.status !== 'success') {
+        const reason = j?.reason || 'Ödeme başlatılamadı.';
+        throw new Error(String(reason));
+      }
+
+      const tokenPath = j?.token;
+      if (!tokenPath || typeof tokenPath !== 'string') {
         throw new Error('Ödeme token alınamadı.');
       }
 
-      // PayTR güvenli sayfayı yeni pencerede aç
-      window.open(`https://www.paytr.com/odeme/guvenli/${token}`, '_blank', 'noopener,noreferrer');
+      // paytr sayfasını aç
+      const url = buildPaytrUrl(tokenPath);
+       window.open(url, '_blank');
       toast('Ödeme sayfası açıldı. Ödeme sonucunuz kısa süre sonra yansıyacaktır.');
     } catch (e: any) {
       toast(e?.message || 'Ödeme başlatılamadı.');
@@ -218,7 +224,9 @@ export default function BuyPackagePage() {
         {!loading && !error && pricing && (
           <div className="flex flex-col gap-1">
             <div className="text-sm text-neutral-600">Anlaşmalı birim fiyat</div>
-            <div className="text-2xl font-bold">{fmtTRY(pricing.unitPriceTRY)} <span className="text-sm font-medium text-neutral-500">/ paket</span></div>
+            <div className="text-2xl font-bold">
+              {fmtTRY(pricing.unitPriceTRY)} <span className="text-sm font-medium text-neutral-500">/ paket</span>
+            </div>
             <div className="text-xs text-neutral-600">
               {pricing.minPackages ? <>En az <b>{pricing.minPackages}</b> paket</> : 'En az sınır yok'}
               {pricing.maxPackages ? <> • En fazla <b>{pricing.maxPackages}</b> paket</> : null}
@@ -264,8 +272,13 @@ export default function BuyPackagePage() {
               <label className="mb-1 block text-sm font-medium text-neutral-700">Ödeme Yöntemi</label>
               <div className="grid grid-cols-3 gap-2">
                 <label className="flex items-center gap-2 text-sm">
-                  <input type="radio" name="pay" checked={paymentMethod === PaymentMethod.CreditCard}
-                    onChange={() => setPaymentMethod(PaymentMethod.CreditCard)} disabled={formDisabled} />
+                  <input
+                    type="radio"
+                    name="pay"
+                    checked={paymentMethod === PaymentMethod.CreditCard}
+                    onChange={() => setPaymentMethod(PaymentMethod.CreditCard)}
+                    disabled={formDisabled}
+                  />
                   <span>Kredi Kartı (PayTR)</span>
                 </label>
                 <label className="flex items-center gap-2 text-sm opacity-60">
@@ -284,61 +297,94 @@ export default function BuyPackagePage() {
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
               <label className="mb-1 block text-sm font-medium text-neutral-700">E-posta</label>
-              <input value={email} onChange={(e) => setEmail(e.target.value)}
-                placeholder="ornek@mail.com" disabled={formDisabled}
-                className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none focus:ring-2 focus:ring-sky-200 disabled:bg-neutral-100" />
+              <input
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="ornek@mail.com"
+                disabled={formDisabled}
+                className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none focus:ring-2 focus:ring-sky-200 disabled:bg-neutral-100"
+              />
             </div>
             <div>
               <label className="mb-1 block text-sm font-medium text-neutral-700">Kart Üzerindeki İsim</label>
-              <input value={nameOnCard} onChange={(e) => setNameOnCard(e.target.value)}
+              <input
+                value={nameOnCard}
+                onChange={(e) => setNameOnCard(e.target.value)}
                 disabled={formDisabled}
-                className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none focus:ring-2 focus:ring-sky-200 disabled:bg-neutral-100" />
+                className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none focus:ring-2 focus:ring-sky-200 disabled:bg-neutral-100"
+              />
             </div>
 
             <div>
               <label className="mb-1 block text-sm font-medium text-neutral-700">Kart Numarası</label>
-              <input value={cardNo} onChange={(e) => setCardNo(e.target.value)}
-                placeholder="4111 1111 1111 1111" disabled={formDisabled}
-                className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none focus:ring-2 focus:ring-sky-200 disabled:bg-neutral-100" />
+              <input
+                value={cardNo}
+                onChange={(e) => setCardNo(e.target.value)}
+                placeholder="4111 1111 1111 1111"
+                disabled={formDisabled}
+                className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none focus:ring-2 focus:ring-sky-200 disabled:bg-neutral-100"
+              />
             </div>
             <div className="grid grid-cols-3 gap-2">
               <div>
                 <label className="mb-1 block text-sm font-medium text-neutral-700">Ay (AA)</label>
-                <input value={expMonth} onChange={(e) => setExpMonth(e.target.value)} placeholder="12"
+                <input
+                  value={expMonth}
+                  onChange={(e) => setExpMonth(e.target.value)}
+                  placeholder="12"
                   disabled={formDisabled}
-                  className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none focus:ring-2 focus:ring-sky-200 disabled:bg-neutral-100" />
+                  className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none focus:ring-2 focus:ring-sky-200 disabled:bg-neutral-100"
+                />
               </div>
               <div>
                 <label className="mb-1 block text-sm font-medium text-neutral-700">Yıl (YY)</label>
-                <input value={expYear} onChange={(e) => setExpYear(e.target.value)} placeholder="27"
+                <input
+                  value={expYear}
+                  onChange={(e) => setExpYear(e.target.value)}
+                  placeholder="27"
                   disabled={formDisabled}
-                  className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none focus:ring-2 focus:ring-sky-200 disabled:bg-neutral-100" />
+                  className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none focus:ring-2 focus:ring-sky-200 disabled:bg-neutral-100"
+                />
               </div>
               <div>
                 <label className="mb-1 block text-sm font-medium text-neutral-700">CVV</label>
-                <input value={cvv} onChange={(e) => setCvv(e.target.value)} placeholder="000"
+                <input
+                  value={cvv}
+                  onChange={(e) => setCvv(e.target.value)}
+                  placeholder="000"
                   disabled={formDisabled}
-                  className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none focus:ring-2 focus:ring-sky-200 disabled:bg-neutral-100" />
+                  className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none focus:ring-2 focus:ring-sky-200 disabled:bg-neutral-100"
+                />
               </div>
             </div>
 
             <div>
               <label className="mb-1 block text-sm font-medium text-neutral-700">Ad Soyad</label>
-              <input value={userName} onChange={(e) => setUserName(e.target.value)}
+              <input
+                value={userName}
+                onChange={(e) => setUserName(e.target.value)}
                 disabled={formDisabled}
-                className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none focus:ring-2 focus:ring-sky-200 disabled:bg-neutral-100" />
+                className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none focus:ring-2 focus:ring-sky-200 disabled:bg-neutral-100"
+              />
             </div>
             <div>
               <label className="mb-1 block text-sm font-medium text-neutral-700">Telefon</label>
-              <input value={userPhone} onChange={(e) => setUserPhone(e.target.value)}
-                placeholder="05xx xxx xx xx" disabled={formDisabled}
-                className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none focus:ring-2 focus:ring-sky-200 disabled:bg-neutral-100" />
+              <input
+                value={userPhone}
+                onChange={(e) => setUserPhone(e.target.value)}
+                placeholder="05xx xxx xx xx"
+                disabled={formDisabled}
+                className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none focus:ring-2 focus:ring-sky-200 disabled:bg-neutral-100"
+              />
             </div>
             <div className="sm:col-span-2">
               <label className="mb-1 block text-sm font-medium text-neutral-700">Adres</label>
-              <input value={userAddress} onChange={(e) => setUserAddress(e.target.value)}
+              <input
+                value={userAddress}
+                onChange={(e) => setUserAddress(e.target.value)}
                 disabled={formDisabled}
-                className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none focus:ring-2 focus:ring-sky-200 disabled:bg-neutral-100" />
+                className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none focus:ring-2 focus:ring-sky-200 disabled:bg-neutral-100"
+              />
             </div>
           </div>
 

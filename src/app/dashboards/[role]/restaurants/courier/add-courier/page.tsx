@@ -2,7 +2,7 @@
 'use client';
 
 import * as React from 'react';
-import { Loader2, RefreshCcw, Search, UserRoundCheck, X } from 'lucide-react';
+import { Loader2, RefreshCcw, Search, UserRoundCheck, Trash2 } from 'lucide-react';
 
 /* ================= Helpers ================= */
 export function getAuthToken(): string | null {
@@ -56,18 +56,8 @@ async function readJson<T = any>(res: Response): Promise<T> {
 }
 
 const pickMsg = (d: any, fb: string) => d?.message || d?.detail || d?.title || fb;
-const fmt = (iso?: string | null) => (iso ? new Date(iso).toLocaleString('tr-TR') : '—');
 
-/* ================= API types (esnek) ================= */
-type OrderItem = {
-  id: string;
-  code?: string;
-  created_at?: string | null;
-  status?: string | null;
-  total?: number | null;
-  // ek alanlar olabilir
-};
-
+/* ================= API types ================= */
 type CourierItem = {
   id: string;
   first_name?: string | null;
@@ -75,85 +65,46 @@ type CourierItem = {
   phone?: string | null;
   vehicle_type?: string | number | null;
   is_active?: boolean | null;
-  // ek alanlar olabilir
+};
+
+type AssignmentItem = {
+  assignment_id: string;
+  courier: CourierItem;
+  notes?: string | null;
 };
 
 /* ================= Page ================= */
-export default function AssignCourierPage() {
+export default function AssignCourierToRestaurantPage() {
   const token = React.useMemo(getAuthToken, []);
   const jwt = React.useMemo(() => parseJwt(token || undefined), [token]);
-  const restaurantId = React.useMemo(() => jwt?.userId || jwt?.sub || '', [jwt]); // KULLANICIYA GÖSTERİLMEZ
+  const restaurantId = React.useMemo(() => jwt?.userId || jwt?.sub || '', [jwt]); // kullanıcıya gösterme
 
   const headers = React.useMemo<HeadersInit>(() => bearerHeaders(token), [token]);
 
-  // state
-  const [orders, setOrders] = React.useState<OrderItem[]>([]);
-  const [ordersLoading, setOrdersLoading] = React.useState(false);
-  const [ordersError, setOrdersError] = React.useState<string | null>(null);
-
+  // Aktif kuryeler (seçim için)
   const [couriers, setCouriers] = React.useState<CourierItem[]>([]);
   const [couriersLoading, setCouriersLoading] = React.useState(false);
   const [couriersError, setCouriersError] = React.useState<string | null>(null);
 
-  const [selectedOrderId, setSelectedOrderId] = React.useState<string>('');
-  const [selectedCourierId, setSelectedCourierId] = React.useState<string>('');
+  // Restorana atanmış kuryeler
+  const [assignments, setAssignments] = React.useState<AssignmentItem[]>([]);
+  const [assignmentsLoading, setAssignmentsLoading] = React.useState(false);
+  const [assignmentsError, setAssignmentsError] = React.useState<string | null>(null);
+
+  // form
+  const [selectedCourierId, setSelectedCourierId] = React.useState('');
+  const [notes, setNotes] = React.useState('');
   const [assigning, setAssigning] = React.useState(false);
+
+  // ui
+  const [qCourier, setQCourier] = React.useState('');
   const [okMsg, setOkMsg] = React.useState<string | null>(null);
   const [errMsg, setErrMsg] = React.useState<string | null>(null);
 
-  // simple filters
-  const [qOrder, setQOrder] = React.useState('');
-  const [qCourier, setQCourier] = React.useState('');
+  function ok(s: string) { setOkMsg(s); setTimeout(() => setOkMsg(null), 3000); }
+  function err(s: string) { setErrMsg(s); setTimeout(() => setErrMsg(null), 4000); }
 
-  // load orders
-  const loadOrders = React.useCallback(async () => {
-    if (!restaurantId) {
-      setOrdersError('Restoran kimliği bulunamadı (token).');
-      return;
-    }
-    setOrdersLoading(true);
-    setOrdersError(null);
-    try {
-      const res = await fetch(`/yuksi/restaurant/${restaurantId}/order-history`, {
-        cache: 'no-store',
-        headers,
-      });
-      const j: any = await readJson(res);
-      if (!res.ok || j?.success === false) throw new Error(pickMsg(j, `HTTP ${res.status}`));
-
-      const list = Array.isArray(j?.data?.orders)
-      ? j.data.orders
-      : Array.isArray(j?.orders)
-      ? j.orders
-      : Array.isArray(j)
-      ? j
-      : [];
-
-    const mapped: OrderItem[] = list
-      // (opsiyonel) sadece paket_servis olanlar
-      // .filter((o: any) => o?.type === 'paket_servis')
-      .map((o: any) => ({
-        id: String(o?.id ?? ''),
-        code: o?.code ? String(o.code) : undefined,
-        created_at: o?.created_at ?? null,
-        status: o?.status ?? null,
-        total: o?.total_amount != null
-          ? Number(o.total_amount)
-          : o?.amount != null
-          ? Number(o.amount)
-          : null,
-      }))
-      .filter((o: OrderItem) => o.id);
-
-      setOrders(mapped);
-    } catch (e: any) {
-      setOrders([]); setOrdersError(e?.message || 'Siparişler alınamadı.');
-    } finally {
-      setOrdersLoading(false);
-    }
-  }, [restaurantId, headers]);
-
-  // load couriers
+  // === Aktif kuryeleri getir (SADECE is_active === true) ===
   const loadCouriers = React.useCallback(async () => {
     setCouriersLoading(true);
     setCouriersError(null);
@@ -163,14 +114,16 @@ export default function AssignCourierPage() {
       if (!res.ok || j?.success === false) throw new Error(pickMsg(j, `HTTP ${res.status}`));
 
       const list = Array.isArray(j?.data) ? j.data : (Array.isArray(j) ? j : []);
-      const mapped: CourierItem[] = list.map((c: any) => ({
-        id: String(c?.id ?? ''),
-        first_name: c?.first_name ?? null,
-        last_name: c?.last_name ?? null,
-        phone: c?.phone ?? null,
-        vehicle_type: c?.vehicle_type ?? null,
-        is_active: typeof c?.is_active === 'boolean' ? c.is_active : null,
-      })).filter((c: CourierItem) => c.id);
+      const mapped: CourierItem[] = list
+        .map((c: any) => ({
+          id: String(c?.id ?? ''),
+          first_name: c?.first_name ?? null,
+          last_name: c?.last_name ?? null,
+          phone: c?.phone ?? null,
+          vehicle_type: c?.vehicle_type ?? null,
+          is_active: typeof c?.is_active === 'boolean' ? c.is_active : null,
+        }))
+        .filter((c: CourierItem) => c.id && c.is_active === true); // ← sadece aktif kuryeler
 
       setCouriers(mapped);
     } catch (e: any) {
@@ -180,47 +133,95 @@ export default function AssignCourierPage() {
     }
   }, [headers]);
 
-  React.useEffect(() => { loadOrders(); }, [loadOrders]);
-  React.useEffect(() => { loadCouriers(); }, [loadCouriers]);
+  // === Restorana atanmış kuryeleri getir ===
+  const loadAssignments = React.useCallback(async () => {
+    if (!restaurantId) { setAssignmentsError('Restoran kimliği yok.'); return; }
+    setAssignmentsLoading(true);
+    setAssignmentsError(null);
+    try {
+      const res = await fetch(`/yuksi/Restaurant/${restaurantId}/couriers`, { cache: 'no-store', headers });
+      const j: any = await readJson(res);
+      if (!res.ok || j?.success === false) throw new Error(pickMsg(j, `HTTP ${res.status}`));
 
-  // assign
+      // Beklenen shape:
+      // { success, data: { stats: {...}, couriers: [ { id: <assignmentId>, courier_id, first_name, last_name, phone, is_active, notes, ... } ] } }
+      const list = Array.isArray(j?.data?.couriers)
+        ? j.data.couriers
+        : Array.isArray(j?.couriers)
+        ? j.couriers
+        : Array.isArray(j)
+        ? j
+        : [];
+
+      const mapped: AssignmentItem[] = list
+        .map((x: any) => ({
+          assignment_id: String(x?.id ?? ''), // assignment id
+          notes: x?.notes ?? null,
+          courier: {
+            id: String(x?.courier_id ?? ''), // kurye id
+            first_name: x?.first_name ?? null,
+            last_name: x?.last_name ?? null,
+            phone: x?.phone ?? null,
+            vehicle_type: null,
+            is_active: typeof x?.is_active === 'boolean' ? x.is_active : null,
+          },
+        }))
+        .filter((a: AssignmentItem) => a.assignment_id && a.courier?.id);
+
+      setAssignments(mapped);
+    } catch (e: any) {
+      setAssignments([]); setAssignmentsError(e?.message || 'Atanmış kurye listesi alınamadı.');
+    } finally {
+      setAssignmentsLoading(false);
+    }
+  }, [restaurantId, headers]);
+
+  React.useEffect(() => { loadCouriers(); }, [loadCouriers]);
+  React.useEffect(() => { loadAssignments(); }, [loadAssignments]);
+
+  // === Atama ===
   async function assign() {
     setOkMsg(null); setErrMsg(null);
-
-    if (!restaurantId) { setErrMsg('Restoran kimliği bulunamadı.'); return; }
-    if (!selectedOrderId) { setErrMsg('Bir sipariş seçin.'); return; }
-    if (!selectedCourierId) { setErrMsg('Bir kurye seçin.'); return; }
+    if (!restaurantId) return err('Restoran kimliği bulunamadı.');
+    if (!selectedCourierId) return err('Bir kurye seçin.');
 
     setAssigning(true);
     try {
-      const res = await fetch(`/yuksi/restaurant/${restaurantId}/orders/${selectedOrderId}/assign-courier`, {
+      const res = await fetch(`/yuksi/Restaurant/${restaurantId}/assign-courier`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...headers },
-        body: JSON.stringify({ courier_id: selectedCourierId }),
+        body: JSON.stringify({ courier_id: selectedCourierId, notes }),
       });
       const j: any = await readJson(res);
       if (!res.ok || j?.success === false) throw new Error(pickMsg(j, `HTTP ${res.status}`));
 
-      setOkMsg('Kurye siparişe atandı.');
-      // istersen siparişleri tazele
-      await loadOrders();
+      ok('Kurye restorana atandı.');
+      setSelectedCourierId('');
+      setNotes('');
+      await loadAssignments();
     } catch (e: any) {
-      setErrMsg(e?.message || 'Kurye atama başarısız.');
+      err(e?.message || 'Kurye atama başarısız.');
     } finally {
       setAssigning(false);
     }
   }
 
-  // filtered views
-  const ordersFiltered = React.useMemo(() => {
-    if (!qOrder.trim()) return orders;
-    const q = qOrder.toLowerCase();
-    return orders.filter(o =>
-      (o.code?.toLowerCase().includes(q) ?? false) ||
-      (o.status?.toLowerCase().includes(q) ?? false) ||
-      o.id.toLowerCase().includes(q),
-    );
-  }, [orders, qOrder]);
+  // === Atamayı kaldır ===
+  async function removeAssignment(assignmentId: string) {
+    if (!restaurantId || !assignmentId) return;
+    try {
+      const res = await fetch(`/yuksi/Restaurant/${restaurantId}/couriers/${assignmentId}`, {
+        method: 'DELETE',
+        headers,
+      });
+      const j: any = await readJson(res);
+      if (!res.ok || j?.success === false) throw new Error(pickMsg(j, `HTTP ${res.status}`));
+      ok('Kurye ataması kaldırıldı.');
+      await loadAssignments();
+    } catch (e: any) {
+      err(e?.message || 'Atama kaldırılamadı.');
+    }
+  }
 
   const couriersFiltered = React.useMemo(() => {
     if (!qCourier.trim()) return couriers;
@@ -232,22 +233,11 @@ export default function AssignCourierPage() {
     });
   }, [couriers, qCourier]);
 
-  const selectedOrder = orders.find(o => o.id === selectedOrderId) || null;
-  const selectedCourier = couriers.find(c => c.id === selectedCourierId) || null;
-
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <h1 className="text-2xl font-semibold tracking-tight">Siparişe Kurye Ata</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Restorana Kurye Ata</h1>
         <div className="flex items-center gap-2">
-          <button
-            onClick={loadOrders}
-            className="inline-flex items-center gap-2 rounded-lg border border-neutral-300 bg-white px-3 py-1.5 text-sm hover:bg-neutral-50"
-            title="Siparişleri yenile"
-          >
-            <RefreshCcw className="h-4 w-4" />
-            Siparişleri Yenile
-          </button>
           <button
             onClick={loadCouriers}
             className="inline-flex items-center gap-2 rounded-lg border border-neutral-300 bg-white px-3 py-1.5 text-sm hover:bg-neutral-50"
@@ -256,42 +246,22 @@ export default function AssignCourierPage() {
             <RefreshCcw className="h-4 w-4" />
             Kuryeleri Yenile
           </button>
+          <button
+            onClick={loadAssignments}
+            className="inline-flex items-center gap-2 rounded-lg border border-neutral-300 bg-white px-3 py-1.5 text-sm hover:bg-neutral-50"
+            title="Atamaları yenile"
+          >
+            <RefreshCcw className="h-4 w-4" />
+            Atamaları Yenile
+          </button>
         </div>
       </div>
 
       {/* Atama Alanı */}
-      <section className="rounded-2xl border border-neutral-200/70 bg-white shadow-sm soft-card p-4 sm:p-6">
-        <div className="grid gap-4 md:grid-cols-2">
-          {/* Sipariş seç */}
-          <div>
-            <label className="mb-1 block text-sm font-semibold text-neutral-700">Sipariş</label>
-            <div className="relative">
-              <input
-                value={qOrder}
-                onChange={(e) => setQOrder(e.target.value)}
-                placeholder="Sipariş ara… (kod, durum, ID)"
-                className="mb-2 w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 pl-9 outline-none ring-2 ring-transparent transition focus:ring-sky-200"
-              />
-              <Search className="pointer-events-none absolute left-2.5 top-[7px] h-4 w-4 text-neutral-400" />
-            </div>
-            <select
-              value={selectedOrderId}
-              onChange={(e) => setSelectedOrderId(e.target.value)}
-              disabled={ordersLoading}
-              className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 disabled:opacity-60"
-            >
-              <option value="">{ordersLoading ? 'Yükleniyor…' : 'Sipariş seçin…'}</option>
-              {ordersError && <option value="">{ordersError}</option>}
-              {!ordersLoading && !ordersError && ordersFiltered.map(o => (
-                <option key={o.id} value={o.id}>
-                  {o.code ? `#${o.code}` : `ID:${o.id}`} • {o.status ?? 'durum yok'} • {fmt(o.created_at)}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Kurye seç */}
-          <div>
+      <section className="rounded-2xl border border-neutral-200/70 bg-white shadow-sm p-4 sm:p-6">
+        <div className="grid gap-4 md:grid-cols-3">
+          {/* Kurye arama + seç */}
+          <div className="md:col-span-2">
             <label className="mb-1 block text-sm font-semibold text-neutral-700">Kurye</label>
             <div className="relative">
               <input
@@ -308,31 +278,41 @@ export default function AssignCourierPage() {
               disabled={couriersLoading}
               className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 disabled:opacity-60"
             >
-              <option value="">{couriersLoading ? 'Yükleniyor…' : 'Kurye seçin…'}</option>
+              <option value="">{couriersLoading ? 'Yükleniyor…' : 'Kurye seçin… (sadece AKTİF)'}</option>
               {couriersError && <option value="">{couriersError}</option>}
               {!couriersLoading && !couriersError && couriersFiltered.map(c => {
                 const name = [c.first_name, c.last_name].filter(Boolean).join(' ') || 'İsimsiz';
-                const badge = c.is_active === false ? ' (pasif)' : '';
                 return (
                   <option key={c.id} value={c.id}>
-                    {name}{badge} • {(c.phone ?? '').trim() || 'tel yok'}
+                    {name} • {(c.phone ?? '').trim() || 'tel yok'}
                   </option>
                 );
               })}
             </select>
           </div>
+
+          {/* Notlar */}
+          <div>
+            <label className="mb-1 block text-sm font-semibold text-neutral-700">Not (opsiyonel)</label>
+            <input
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Örn: Akşam vardiyası"
+              className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none ring-2 ring-transparent transition focus:ring-sky-200"
+            />
+          </div>
         </div>
 
         <div className="mt-4 flex items-center justify-end gap-2">
           <button
-            onClick={() => { setSelectedOrderId(''); setSelectedCourierId(''); setOkMsg(null); setErrMsg(null); }}
+            onClick={() => { setSelectedCourierId(''); setNotes(''); setOkMsg(null); setErrMsg(null); }}
             className="rounded-lg border border-neutral-300 bg-white px-4 py-2 text-sm hover:bg-neutral-50"
           >
             Temizle
           </button>
           <button
             onClick={assign}
-            disabled={assigning || !selectedOrderId || !selectedCourierId}
+            disabled={assigning || !selectedCourierId}
             className="inline-flex items-center gap-2 rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-orange-700 disabled:opacity-60"
           >
             {assigning ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserRoundCheck className="h-4 w-4" />}
@@ -344,79 +324,59 @@ export default function AssignCourierPage() {
         {errMsg && <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{errMsg}</div>}
       </section>
 
-      {/* Mini listeler (bilgi amaçlı) */}
-      <div className="grid gap-6 lg:grid-cols-2">
-        <section className="rounded-2xl border border-neutral-200/70 bg-white shadow-sm">
-          <div className="flex items-center justify-between px-4 py-3 border-b">
-            <div className="font-semibold">Son Siparişler</div>
-            {ordersLoading && <span className="text-xs text-neutral-500">Yükleniyor…</span>}
-          </div>
-          <div className="max-h-[340px] overflow-auto">
-            <table className="min-w-full">
-              <thead>
-                <tr className="text-left text-xs text-neutral-500">
-                  <th className="px-4 py-2">Sipariş</th>
-                  <th className="px-4 py-2">Durum</th>
-                  <th className="px-4 py-2">Tarih</th>
-                  <th className="px-4 py-2">Toplam</th>
-                </tr>
-              </thead>
-              <tbody>
-                {orders.map(o => (
-                  <tr key={o.id} className="border-t text-sm">
-                    <td className="px-4 py-2">{o.code ? `#${o.code}` : o.id}</td>
-                    <td className="px-4 py-2">{o.status ?? '—'}</td>
-                    <td className="px-4 py-2">{fmt(o.created_at)}</td>
-                    <td className="px-4 py-2">{o.total != null ? `${o.total} ₺` : '—'}</td>
+      {/* Restorana atanmış kuryeler */}
+      <section className="rounded-2xl border border-neutral-200/70 bg-white shadow-sm">
+        <div className="flex items-center justify-between px-4 py-3 border-b">
+          <div className="font-semibold">Restorana Atanmış Kuryeler</div>
+          {assignmentsLoading && <span className="text-xs text-neutral-500">Yükleniyor…</span>}
+        </div>
+        <div className="max-h-[420px] overflow-auto">
+          <table className="min-w-full">
+            <thead>
+              <tr className="text-left text-xs text-neutral-500">
+                <th className="px-4 py-2">Kurye</th>
+                <th className="px-4 py-2">Telefon</th>
+                <th className="px-4 py-2">Not</th>
+                <th className="px-4 py-2 w-28">İşlem</th>
+              </tr>
+            </thead>
+            <tbody>
+              {assignments.map(a => {
+                const name = [a.courier.first_name, a.courier.last_name].filter(Boolean).join(' ') || a.courier.id;
+                return (
+                  <tr key={a.assignment_id} className="border-t text-sm">
+                    <td className="px-4 py-2">{name}</td>
+                    <td className="px-4 py-2">{a.courier.phone ?? '—'}</td>
+                    <td className="px-4 py-2">{a.notes ?? '—'}</td>
+                    <td className="px-4 py-2">
+                      <button
+                        onClick={() => removeAssignment(a.assignment_id)}
+                        className="inline-flex items-center gap-1 rounded-md border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-100"
+                        title="Atamayı kaldır"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                        Kaldır
+                      </button>
+                    </td>
                   </tr>
-                ))}
-                {orders.length === 0 && (
-                  <tr><td colSpan={4} className="px-4 py-6 text-center text-sm text-neutral-500">Kayıt yok.</td></tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </section>
-
-        <section className="rounded-2xl border border-neutral-200/70 bg-white shadow-sm">
-          <div className="flex items-center justify-between px-4 py-3 border-b">
-            <div className="font-semibold">Kuryeler</div>
-            {couriersLoading && <span className="text-xs text-neutral-500">Yükleniyor…</span>}
-          </div>
-          <div className="max-h-[340px] overflow-auto">
-            <table className="min-w-full">
-              <thead>
-                <tr className="text-left text-xs text-neutral-500">
-                  <th className="px-4 py-2">Kurye</th>
-                  <th className="px-4 py-2">Telefon</th>
-                  <th className="px-4 py-2">Durum</th>
+                );
+              })}
+              {assignments.length === 0 && !assignmentsLoading && (
+                <tr>
+                  <td colSpan={4} className="px-4 py-6 text-center text-sm text-neutral-500">
+                    Atanmış kurye yok.
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {couriers.map(c => {
-                  const name = [c.first_name, c.last_name].filter(Boolean).join(' ') || 'İsimsiz';
-                  return (
-                    <tr key={c.id} className="border-t text-sm">
-                      <td className="px-4 py-2">{name}</td>
-                      <td className="px-4 py-2">{c.phone ?? '—'}</td>
-                      <td className="px-4 py-2">
-                        <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
-                          c.is_active ? 'bg-emerald-500 text-white' : 'bg-neutral-300 text-neutral-800'
-                        }`}>
-                          {c.is_active ? 'AKTİF' : 'PASİF'}
-                        </span>
-                      </td>
-                    </tr>
-                  );
-                })}
-                {couriers.length === 0 && (
-                  <tr><td colSpan={3} className="px-4 py-6 text-center text-sm text-neutral-500">Kayıt yok.</td></tr>
-                )}
-              </tbody>
-            </table>
+              )}
+            </tbody>
+          </table>
+        </div>
+        {assignmentsError && (
+          <div className="m-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+            {assignmentsError}
           </div>
-        </section>
-      </div>
+        )}
+      </section>
     </div>
   );
 }

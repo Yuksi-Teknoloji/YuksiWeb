@@ -4,7 +4,8 @@
 import * as React from "react";
 import { Trash2 } from "lucide-react";
 import "@/styles/admin-settings.css";
-import { API_BASE } from '@/configs/api'; 
+import { API_BASE } from '@/configs/api';
+import { getAuthToken } from '@/utils/auth'; // ✅ auth token buradan
 
 type BannerApiItem = {
   id?: number | string;
@@ -40,7 +41,6 @@ type GeneralSettingsDto = {
   mapEmbedCode: string;
   logoPath: string;
 };
-
 
 // ---- helpers
 async function readProblem(res: Response) {
@@ -82,15 +82,16 @@ async function fileToBase64Raw(file: File): Promise<string> {
 
 export default function SettingsPage() {
   // ---- GeneralSettings (SOL PANEL)
+  const [generalId, setGeneralId] = React.useState<string | null>(null); // ✅ GET ile gelen id'yi tut
   const [appName, setAppName] = React.useState("");
   const [appTitle, setAppTitle] = React.useState("");
-  const [desc, setDesc] = React.useState("");           // swagger'da "description" yok; sen SEO açıklamanı "keywords"tan ayrı tutmak istersen backend'e eklenmeli.
+  const [desc, setDesc] = React.useState(""); // not used by API, UI'da kalsın
   const [keywords, setKeywords] = React.useState("");
   const [email, setEmail] = React.useState("");
   const [whatsapp, setWhatsapp] = React.useState("");
   const [address, setAddress] = React.useState("");
   const [mapEmbedCode, setMapEmbed] = React.useState("");
-  const [logoPath, setLogoPath] = React.useState("");   // <-- swagger alanı
+  const [logoPath, setLogoPath] = React.useState("");
   const [logoFile, setLogoFile] = React.useState<File | null>(null);
 
   // ---- Diğer (demo)
@@ -111,96 +112,112 @@ export default function SettingsPage() {
   const [error, setError] = React.useState<string | null>(null);
   const [okMsg, setOkMsg] = React.useState<string | null>(null);
 
-  // ---------- GeneralSettings: GET
+  // ---- auth headers
+  const [token, setToken] = React.useState<string | null>(null);
+  React.useEffect(() => { setToken(getAuthToken()); }, []);
+  const authHeaders = React.useMemo<HeadersInit>(() => {
+    const h: HeadersInit = { Accept: "application/json" };
+    if (token) (h as any).Authorization = `Bearer ${token}`;
+    return h;
+  }, [token]);
+
+  // ---------- GeneralSettings: GET  (✅ /api/GeneralSetting/get)
   const loadGeneral = React.useCallback(async () => {
     setLoadingGeneral(true);
     setError(null);
     try {
-      const res = await fetch(`${API_BASE}/api/admin/GeneralSettings/get-general-settings`, { cache: "no-store" });
+      const res = await fetch(`/yuksi/GeneralSetting/get`, {
+        cache: "no-store",
+        headers: authHeaders,
+      });
       if (!res.ok) {
         const prob = await readProblem(res);
         throw new Error(typeof prob === "string" ? prob : (prob?.title || prob?.message || `HTTP ${res.status}`));
       }
       const data = await res.json().catch(() => ({}));
-      const gs: Partial<GeneralSettingsDto> = (data?.data ?? data) || {};
-      setAppName(gs.appName ?? "");
-      setAppTitle(gs.appTitle ?? "");
-      setKeywords(gs.keywords ?? "");
-      setEmail(gs.email ?? "");
-      setWhatsapp(gs.whatsApp ?? "");
-      setAddress(gs.address ?? "");
-      setMapEmbed(gs.mapEmbedCode ?? "");
-      setLogoPath(gs.logoPath ?? "");
+      const d = (data?.data ?? data) || {};
+      // swagger alan adları → form state
+      setGeneralId(d.id ? String(d.id) : null);
+      setAppName(d.app_name ?? "");
+      setAppTitle(d.app_title ?? "");
+      setKeywords(d.keywords ?? "");
+      setEmail(d.email ?? "");
+      setWhatsapp(d.whatsapp ?? "");
+      setAddress(d.address ?? "");
+      setMapEmbed(d.map_embed_code ?? "");
+      setLogoPath(d.logo_path ?? "");
     } catch (e: any) {
       setError(e?.message || "Genel ayarlar alınamadı.");
     } finally {
       setLoadingGeneral(false);
     }
-  }, []);
+  }, [authHeaders]);
 
   function toNumericId(b: BannerCard | undefined, idOrStr: string | number) {
     if (!b) return null;
-    if (typeof b.numericId === "number") return b.numericId;      // API int id zaten var
-    // bazı kayıtlar string "43" dönebiliyor
+    if (typeof b.numericId === "number") return b.numericId;
     const n = Number.parseInt(String(b.id), 10);
     return Number.isFinite(n) ? n : null;
   }
 
-  // ---------- GeneralSettings: PATCH
+  // ---------- GeneralSettings: CREATE / UPDATE
+  //  • id yoksa -> POST /api/GeneralSetting/create
+  //  • id varsa -> PATCH /api/GeneralSetting/update
   async function saveGeneral() {
-  setSavingGeneral(true);
-  setError(null);
-  setOkMsg(null);
+    setSavingGeneral(true);
+    setError(null);
+    setOkMsg(null);
 
-  // swagger’daki alan adlarıyla birebir
-  const dto = {
-    appName: (appName || "").trim(),
-    appTitle: (appTitle || "").trim(),
-    keywords: (keywords || "").trim(),
-    email: (email || "").trim(),
-    whatsApp: (whatsapp || "").trim(), // dikkat: 'whatsApp'
-    address: (address || "").trim(),
-    mapEmbedCode: (mapEmbedCode || "").trim(),
-    logoPath: (logoPath || "").trim(),
-  };
+    // swagger’daki alan adlarıyla birebir payload (snake_case)
+    const payload: any = {
+      app_name: (appName || "").trim(),
+      app_title: (appTitle || "").trim(),
+      keywords: (keywords || "").trim(),
+      email: (email || "").trim(),
+      whatsapp: (whatsapp || "").trim(),
+      address: (address || "").trim(),
+      map_embed_code: (mapEmbedCode || "").trim(),
+      logo_path: (logoPath || "").trim(),
+    };
 
-  if (!dto.appName || !dto.appTitle) {
-    setSavingGeneral(false);
-    setError("Lütfen App Adı ve App Başlığı alanlarını doldurun.");
-    return;
-  }
-
-  try {
-    const res = await fetch(
-      `${API_BASE}/api/admin/GeneralSettings/set-general-settings`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json; charset=utf-8" },
-        body: JSON.stringify(dto),
-      }
-    );
-
-    if (!res.ok) {
-      const prob = await readAny(res);
-      const msg =
-        (typeof prob === "string" && prob) ||
-        prob?.title ||
-        prob?.message ||
-        prob?.detail ||
-        `HTTP ${res.status}`;
-      throw new Error(msg);
+    if (!payload.app_name || !payload.app_title) {
+      setSavingGeneral(false);
+      setError("Lütfen App Adı ve App Başlığı alanlarını doldurun.");
+      return;
     }
 
-    setOkMsg("Genel ayarlar kaydedildi.");
-    await loadGeneral(); // ekranda güncel değerleri göster
-  } catch (e: any) {
-    setError(e?.message || "Genel ayarlar kaydedilemedi.");
-  } finally {
-    setSavingGeneral(false);
-  }
-}
+    const isUpdate = !!generalId;
+    if (isUpdate) payload.id = generalId!;
 
-  // ---------- Banner list
+    try {
+      const res = await fetch(
+        `/yuksi/GeneralSetting/${isUpdate ? "update" : "create"}`,
+        {
+          method: isUpdate ? "PATCH" : "POST",
+          headers: { "Content-Type": "application/json; charset=utf-8", ...authHeaders },
+          body: JSON.stringify(payload),
+        }
+      );
+
+      if (!res.ok) {
+        const prob = await readAny(res);
+        const msg =
+          (typeof prob === "string" && prob) ||
+          prob?.title || prob?.message || prob?.detail ||
+          `HTTP ${res.status}`;
+        throw new Error(msg);
+      }
+
+      setOkMsg(isUpdate ? "Genel ayarlar güncellendi." : "Genel ayarlar oluşturuldu.");
+      await loadGeneral(); // ekranda güncel değerleri göster
+    } catch (e: any) {
+      setError(e?.message || "Genel ayarlar kaydedilemedi.");
+    } finally {
+      setSavingGeneral(false);
+    }
+  }
+
+  // ---------- Banner list (değişmedi)
   const loadBanners = React.useCallback(async () => {
     setLoadingList(true);
     setError(null);
@@ -250,12 +267,10 @@ export default function SettingsPage() {
     alert(`Komisyon güncellendi: %${commission}`);
   }
 
-  // ---------- Banner add/update/delete (aynı)
+  // ---------- Banner add/update/delete (değişmedi)
   async function addBanner() {
-    // dosya zorunlu olmasın; URL varsa onu gönderelim
     setSaving(true); setError(null); setOkMsg(null);
     try {
-      // kullanıcının URL yazmış olabileceği alanları koklayalım
       const maybeUrl = [bannerLink, bannerDesc].find(
         (x) => typeof x === "string" && /^https?:\/\//i.test(x.trim())
       );
@@ -264,12 +279,10 @@ export default function SettingsPage() {
       let imageFileNames: string[] | undefined;
 
       if (bannerFile) {
-        // dosya seçilmişse – eski davranış (base64)
         const b64 = await fileToBase64Raw(bannerFile);
         images = [b64];
         imageFileNames = [bannerFile.name];
       } else if (maybeUrl) {
-        // dosya yok ama URL var → URL olarak gönder
         images = [maybeUrl.trim()];
       } else {
         setSaving(false);
@@ -316,12 +329,10 @@ export default function SettingsPage() {
       };
 
       if (b._file) {
-        // yeni dosya seçildiyse eski davranış
         const raw = await fileToBase64Raw(b._file);
         body.images = [raw];
         body.imageFileNames = [b._file.name];
       } else if (b.image) {
-        // yeni dosya yoksa mevcut kaynağı (çoğu zaman URL) aynen gönder
         body.images = [b.image];
       }
 
@@ -361,7 +372,6 @@ export default function SettingsPage() {
         throw new Error(`Silinemedi: ${msg}`);
       }
 
-      // UI’dan anında çıkar + istersen tekrar yükle
       setBanners(prev => prev.filter(x => toNumericId(x, x.id) !== bannerId));
       setOkMsg("Banner silindi.");
     } catch (e: any) {
@@ -435,11 +445,11 @@ export default function SettingsPage() {
         </section>
       </div>
 
-         <br />
-         
+      <br />
+
       {/* Orta bölüm – sol form + sağ liste */}
       <div className="grid grid--main">
-        {/* Sol – GENERAL SETTINGS (bağlandı) */}
+        {/* Sol – GENERAL SETTINGS (✅ bağlandı) */}
         <section className="card">
           <div className="form">
             {loadingGeneral && <div className="muted">Genel ayarlar yükleniyor…</div>}
@@ -504,13 +514,13 @@ export default function SettingsPage() {
 
             <div className="align-end pt-2">
               <button onClick={saveGeneral} disabled={savingGeneral} className="btn btn--success">
-                {savingGeneral ? "Kaydediliyor…" : "Genel Ayarları Kaydet"}
+                {savingGeneral ? "Kaydediliyor…" : (generalId ? "Genel Ayarları Güncelle" : "Genel Ayarları Kaydet")}
               </button>
             </div>
           </div>
         </section>
 
-        {/* Sağ – Banner listesi */}
+        {/* Sağ – Banner listesi (dokunulmadı) */}
         <aside className="card card--list">
           {loadingList ? (
             <div className="muted">Yükleniyor…</div>
