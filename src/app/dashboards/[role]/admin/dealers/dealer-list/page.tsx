@@ -7,11 +7,7 @@ import { getAuthToken } from '@/utils/auth';
 /* ================= Helpers ================= */
 async function readJson<T = any>(res: Response): Promise<T> {
   const t = await res.text();
-  try {
-    return t ? JSON.parse(t) : (null as any);
-  } catch {
-    return (t as any);
-  }
+  try { return t ? JSON.parse(t) : (null as any); } catch { return (t as any); }
 }
 const pickMsg = (d: any, fb: string) =>
   d?.error?.message || d?.message || d?.detail || d?.title || fb;
@@ -22,12 +18,12 @@ function bearerHeaders(token?: string | null): HeadersInit {
   return h;
 }
 
-/* ================= Types (esnek) ================= */
+/* ================= Types ================= */
 type DealerStatus = 'pendingApproval' | 'active' | 'inactive';
 
 type DealerRow = {
   id: number | string;
-  name: string; // first name
+  name: string;
   surname?: string | null;
   phone?: string | null;
   email?: string | null;
@@ -35,7 +31,7 @@ type DealerRow = {
   address?: string | null;
 
   country_id?: number | null;
-  state_id?: number | null; // district/ilçe
+  state_id?: number | null; // ilçe
   city_id?: number | null;  // il
 
   country_name?: string | null;
@@ -47,27 +43,22 @@ type DealerRow = {
   iban?: string | null;
   resume?: string | null;
   status: DealerStatus;
+  created_at?: string | null;
 };
 
-type DealersListResponse =
-  | { success?: boolean; data?: any }
-  | any;
+type DealersListResponse = { success?: boolean; data?: any } | any;
 
 /* ================= Page ================= */
 export default function DealerListPage() {
   const token = React.useMemo(getAuthToken, []);
   const headers = React.useMemo<HeadersInit>(() => bearerHeaders(token), [token]);
 
-  const [limit, setLimit] = React.useState<number>(100);
-  const [offset, setOffset] = React.useState<number>(0);
-
   const [rows, setRows] = React.useState<DealerRow[]>([]);
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
-
   const [q, setQ] = React.useState('');
 
-  // Edit modal state
+  // Edit modal
   const [editOpen, setEditOpen] = React.useState(false);
   const [editBusy, setEditBusy] = React.useState(false);
   const [editRow, setEditRow] = React.useState<DealerRow | null>(null);
@@ -78,66 +69,62 @@ export default function DealerListPage() {
   const [statusRow, setStatusRow] = React.useState<DealerRow | null>(null);
   const [newStatus, setNewStatus] = React.useState<DealerStatus>('pendingApproval');
 
-  // Message
+  // Messages
   const [okMsg, setOkMsg] = React.useState<string | null>(null);
   const [errMsg, setErrMsg] = React.useState<string | null>(null);
-  function ok(m: string) { setOkMsg(m); setTimeout(() => setOkMsg(null), 3500); }
-  function err(m: string) { setErrMsg(m); setTimeout(() => setErrMsg(null), 4500); }
+  const ok = (m: string) => { setOkMsg(m); setTimeout(() => setOkMsg(null), 3500); };
+  const err = (m: string) => { setErrMsg(m); setTimeout(() => setErrMsg(null), 4500); };
 
   const load = React.useCallback(async () => {
-    setLoading(true);
-    setError(null);
+    setLoading(true); setError(null);
     try {
-      const url = new URL('/yuksi/admin/dealers', location.origin);
-      url.searchParams.set('limit', String(limit));
-      url.searchParams.set('offset', String(offset));
-
-      const res = await fetch(url.toString(), { cache: 'no-store', headers });
+      const res = await fetch('/yuksi/admin/dealers', { cache: 'no-store', headers });
       const j: DealersListResponse = await readJson(res);
       if (!res.ok) throw new Error(pickMsg(j, `HTTP ${res.status}`));
 
-      // API farklı sarmallarda dönebilir — esnek ayrıştırma
-      const listRaw: any[] =
-        Array.isArray((j as any)?.data?.dealers) ? (j as any).data.dealers :
-        Array.isArray((j as any)?.data) ? (j as any).data :
-        Array.isArray(j) ? (j as any) : [];
+      // Yeni response: { success, message, data: [{ dealerid, name, ... }] }
+      const listRaw: any[] = Array.isArray(j?.data) ? j.data : (Array.isArray(j) ? j : []);
+      const mapped: DealerRow[] = listRaw
+        .map((it: any): DealerRow => ({
+          id: it?.dealerid ?? it?.id ?? '',
+          name: String(it?.name ?? '').trim(),
+          surname: it?.surname ?? null,
+          phone: it?.phone ?? null,
+          email: it?.email ?? null, // gelmiyor olabilir
+          account_type: it?.accounttype ?? null, // <- accounttype
+          address: it?.address ?? null,
 
-      const mapped: DealerRow[] = listRaw.map((it: any): DealerRow => ({
-        id: it?.id ?? it?.dealer_id ?? it?.dealerId ?? '',
-        name: String(it?.name ?? it?.first_name ?? '').trim(),
-        surname: it?.surname ?? it?.last_name ?? null,
-        phone: it?.phone ?? null,
-        email: it?.email ?? null,
-        account_type: it?.account_type ?? null,
-        address: it?.address ?? null,
-        country_id: it?.country_id != null ? Number(it.country_id) : null,
-        state_id: it?.state_id != null ? Number(it.state_id) : null,
-        city_id: it?.city_id != null ? Number(it.city_id) : null,
-        country_name: it?.country_name ?? it?.country ?? null,
-        state_name: it?.state_name ?? it?.district ?? null,
-        city_name: it?.city_name ?? it?.city ?? null,
-        tax_office: it?.tax_office ?? null,
-        tax_number: it?.tax_number ?? null,
-        iban: it?.iban ?? null,
-        resume: it?.resume ?? null,
-        status: (it?.status as DealerStatus) ?? 'pendingApproval',
-      })).filter((d: DealerRow) => d.id !== '');
+          country_id: it?.countryid != null ? Number(it.countryid) : null,
+          state_id:   it?.stateid   != null ? Number(it.stateid)   : null,
+          city_id:    it?.cityid    != null ? Number(it.cityid)    : null,
+
+          country_name: it?.countryname ?? null,
+          state_name:   it?.statename   ?? null,
+          city_name:    it?.cityname    ?? null,
+
+          tax_office: it?.taxoffice ?? null,
+          tax_number: it?.taxnumber ?? null,
+          iban: it?.iban ?? null,
+          resume: it?.resume ?? null,
+          status: (it?.status as DealerStatus) ?? 'pendingApproval',
+          created_at: it?.created_at ?? null,
+        }))
+        .filter((d) => d.id !== '');
 
       setRows(mapped);
     } catch (e: any) {
-      setRows([]);
-      setError(e?.message || 'Bayi listesi alınamadı.');
+      setRows([]); setError(e?.message || 'Bayi listesi alınamadı.');
     } finally {
       setLoading(false);
     }
-  }, [headers, limit, offset]);
+  }, [headers]);
 
   React.useEffect(() => { load(); }, [load]);
 
   const filtered = React.useMemo(() => {
     const s = q.trim().toLowerCase();
     if (!s) return rows;
-    return rows.filter((d: DealerRow) =>
+    return rows.filter((d) =>
       [
         d.name,
         d.surname ?? '',
@@ -149,26 +136,19 @@ export default function DealerListPage() {
         d.country_name ?? '',
         d.status ?? '',
         String(d.id ?? ''),
-      ]
-        .join(' ')
-        .toLowerCase()
-        .includes(s),
+      ].join(' ').toLowerCase().includes(s),
     );
   }, [rows, q]);
 
   /* ========== Actions ========== */
-  // Delete
   async function onDelete(id: number | string) {
     if (!confirm('Bu bayiyi silmek istediğinize emin misiniz?')) return;
     try {
       const res = await fetch(`/yuksi/admin/dealers/${id}`, { method: 'DELETE', headers });
       const j = await readJson(res);
       if (!res.ok) throw new Error(pickMsg(j, `HTTP ${res.status}`));
-      ok('Bayi silindi.');
-      await load();
-    } catch (e: any) {
-      err(e?.message || 'Silme işlemi başarısız.');
-    }
+      ok('Bayi silindi.'); await load();
+    } catch (e: any) { err(e?.message || 'Silme işlemi başarısız.'); }
   }
 
   // Open edit
@@ -268,28 +248,7 @@ export default function DealerListPage() {
               className="w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 text-neutral-800 outline-none ring-2 ring-transparent transition placeholder:text-neutral-400 focus:bg-white focus:ring-sky-200"
             />
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="mb-1 block text-xs font-medium text-neutral-600">Limit</label>
-              <input
-                type="number"
-                min={1}
-                max={500}
-                value={limit}
-                onChange={(e) => setLimit(Math.max(1, Math.min(500, Number(e.target.value || 1))))}
-                className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-neutral-600">Offset</label>
-              <input
-                type="number"
-                min={0}
-                value={offset}
-                onChange={(e) => setOffset(Math.max(0, Number(e.target.value || 0)))}
-                className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2"
-              />
-            </div>
+          <div className="grid grid-cols-2 gap-3">  
             <div className="col-span-2 flex items-end">
               <button
                 onClick={load}
