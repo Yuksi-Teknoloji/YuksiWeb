@@ -1,216 +1,454 @@
-// src/app/dashboards/[role]/admin/shipments/shipping-list/page.tsx
 'use client';
 
 import * as React from 'react';
+import { getAuthToken } from '@/utils/auth';
 
-type Row = {
+/* ========= helpers ========= */
+async function readJson<T = any>(res: Response): Promise<T> {
+  const t = await res.text();
+  try { return t ? JSON.parse(t) : (null as any); } catch { return (t as any); }
+}
+const pickMsg = (d: any, fb: string) =>
+  d?.error?.message || d?.message || d?.detail || d?.title || fb;
+
+function bearerHeaders(token?: string | null): HeadersInit {
+  const h: HeadersInit = { Accept: 'application/json' };
+  if (token) (h as any).Authorization = `Bearer ${token}`;
+  return h;
+}
+
+function fmtTRY(n?: number | null) {
+  if (n == null) return '-';
+  try { return n.toLocaleString('tr-TR', { style: 'currency', currency: 'TRY', maximumFractionDigits: 0 }); }
+  catch { return String(n); }
+}
+function fmtDate(iso?: string | null) {
+  if (!iso) return '-';
+  try { return new Date(iso).toLocaleString('tr-TR'); } catch { return iso; }
+}
+function badgeColor(kind?: string) {
+  if (kind === 'immediate') return 'bg-indigo-50 text-indigo-700 ring-indigo-100';
+  if (kind === 'appointment') return 'bg-amber-50 text-amber-700 ring-amber-100';
+  return 'bg-neutral-100 text-neutral-700 ring-neutral-200';
+}
+
+/* ========= API types ========= */
+type ApiJob = {
   id: string;
-  name: string;      // isim / plaka / tel
-  type: 'Bugün' | 'Randevulu' | 'Ekspres' | 'Standart';
-  status: 'Beklemede' | 'Yolda' | 'Tamamlandı' | 'İptal';
-  date: string;      // ISO yyyy-mm-dd
+  deliveryType: 'immediate' | 'appointment' | string;
+  carrierType?: string | null;
+  vehicleType?: string | null;
+  pickupAddress?: string | null;
+  dropoffAddress?: string | null;
+  specialNotes?: string | null;
+  totalPrice?: number | null;
+  paymentMethod?: 'cash' | 'card' | 'transfer' | string | null;
+  createdAt?: string | null;
+  // back-end başka alanlar dönerse sorun olmaz
 };
+type ListResponse = { success?: boolean; message?: string; data?: ApiJob[] };
 
-const SEED: Row[] = [
-  { id: '1', name: '34ABC123 · 0532 000 00 00', type: 'Bugün',    status: 'Yolda',      date: '2025-09-22' },
-  { id: '2', name: 'Emre Kuzey · 0541 111 22 33', type: 'Randevulu', status: 'Beklemede', date: '2025-09-22' },
-];
-
+/* ========= page ========= */
 export default function ShippingListPage() {
+  const token = React.useMemo(getAuthToken, []);
+  const headers = React.useMemo<HeadersInit>(() => bearerHeaders(token), [token]);
+
+  // filters / paging
+  const [limit, setLimit] = React.useState<number | ''>('');
+  const [offset, setOffset] = React.useState<number>(0);
+  const [deliveryType, setDeliveryType] = React.useState<'' | 'immediate' | 'appointment'>('');
   const [q, setQ] = React.useState('');
-  const [passType, setPassType] = React.useState<string>('');
-  const [byStatus, setByStatus] = React.useState<string>('');
-  const [start, setStart] = React.useState<string>(today());
-  const [end, setEnd] = React.useState<string>(today());
-  const [rows] = React.useState<Row[]>(SEED);
+
+  // data
+  const [rows, setRows] = React.useState<ApiJob[]>([]);
+  const [loading, setLoading] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+
+  // UI
+  const [selected, setSelected] = React.useState<ApiJob | null>(null);
+  const [editing, setEditing] = React.useState<ApiJob | null>(null);
+  const [info, setInfo] = React.useState<string | null>(null);
+
+  function toast(s: string) { setInfo(s); setTimeout(() => setInfo(null), 2500); }
+
+  const load = React.useCallback(async () => {
+    setLoading(true); setError(null);
+    try {
+      const url = new URL('/yuksi/admin/jobs', location.origin);
+      if (limit !== '') url.searchParams.set('limit', String(limit));
+      url.searchParams.set('offset', String(offset));
+      if (deliveryType) url.searchParams.set('deliveryType', deliveryType);
+      const res = await fetch(url.toString(), { headers, cache: 'no-store' });
+      const j = await readJson<ListResponse>(res);
+      if (!res.ok || (j && (j as any).success === false)) {
+        throw new Error(pickMsg(j, `HTTP ${res.status}`));
+      }
+      const list = Array.isArray(j?.data) ? j!.data! : Array.isArray(j) ? (j as any as ApiJob[]) : [];
+      setRows(list);
+    } catch (e: any) {
+      setError(e?.message || 'Yük listesi alınamadı.');
+      setRows([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [headers, limit, offset, deliveryType]);
+
+  React.useEffect(() => { load(); }, [load]);
 
   const filtered = React.useMemo(() => {
-    const s = start ? new Date(start) : undefined;
-    const e = end ? new Date(end) : undefined;
+    const qq = q.trim().toLowerCase();
+    if (!qq) return rows;
+    return rows.filter(r =>
+      [
+        r.pickupAddress || '',
+        r.dropoffAddress || '',
+        r.specialNotes || '',
+        r.paymentMethod || '',
+        r.deliveryType || '',
+      ].join(' ').toLowerCase().includes(qq)
+    );
+  }, [rows, q]);
 
-    return rows.filter((r) => {
-      const matchesQ =
-        !q ||
-        r.name.toLowerCase().includes(q.toLowerCase());
+  // CRUD
+  async function onDelete(id: string) {
+    if (!confirm('Bu yük kaydını silmek istiyor musunuz?')) return;
+    try {
+      const res = await fetch(`/yuksi/admin/jobs/${id}`, { method: 'DELETE', headers });
+      const j = await readJson(res);
+      if (!res.ok || (j && (j as any).success === false)) throw new Error(pickMsg(j, `HTTP ${res.status}`));
+      await load();
+      toast('Kayıt silindi.');
+    } catch (e: any) {
+      alert(e?.message || 'Silme işlemi başarısız.');
+    }
+  }
 
-      const matchesType = !passType || r.type === passType;
-      const matchesStatus = !byStatus || r.status === byStatus;
+  async function onUpdate(id: string, payload: Partial<ApiJob>) {
+    // PUT bekliyor: create ile aynı alanlar; elimizdeki + düzenlenenlerle gönderiyoruz
+    const r = rows.find(x => x.id === id);
+    if (!r) return;
 
-      const d = new Date(r.date);
-      const inRange = (!s || d >= s) && (!e || d <= e);
+    const body = {
+      deliveryType: r.deliveryType,
+      carrierType: r.carrierType ?? 'courier',
+      vehicleType: r.vehicleType ?? 'motorcycle',
+      pickupAddress: payload.pickupAddress ?? r.pickupAddress ?? '',
+      dropoffAddress: payload.dropoffAddress ?? r.dropoffAddress ?? '',
+      specialNotes: payload.specialNotes ?? r.specialNotes ?? '',
+      campaignCode: undefined,
+      extraServices: [],
+      extraServicesTotal: 0,
+      totalPrice: payload.totalPrice ?? r.totalPrice ?? 0,
+      paymentMethod: (payload.paymentMethod ?? r.paymentMethod ?? 'cash'),
+      imageFileIds: [],
+    };
 
-      return matchesQ && matchesType && matchesStatus && inRange;
-    });
-  }, [rows, q, passType, byStatus, start, end]);
+    try {
+      const res = await fetch(`/yuksi/admin/jobs/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...headers },
+        body: JSON.stringify(body),
+      });
+      const j = await readJson(res);
+      if (!res.ok || (j && (j as any).success === false)) throw new Error(pickMsg(j, `HTTP ${res.status}`));
+      setEditing(null);
+      await load();
+      toast('Kayıt güncellendi.');
+    } catch (e: any) {
+      alert(e?.message || 'Güncelleme başarısız.');
+    }
+  }
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold tracking-tight">Taşıma Listesi</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Yük Listesi</h1>
+        <div className="flex items-center gap-2">
+          <label className="text-sm text-neutral-600">Limit</label>
+          <input
+            type="number"
+            min={1}
+            value={limit}
+            onChange={(e) => setLimit(e.target.value === '' ? '' : Number(e.target.value))}
+            className="w-24 rounded-lg border border-neutral-300 bg-neutral-100 px-2 py-1.5 text-sm"
+            placeholder="-"
+          />
+          <label className="text-sm text-neutral-600">Offset</label>
+          <input
+            type="number"
+            min={0}
+            value={offset}
+            onChange={(e) => setOffset(Number(e.target.value) || 0)}
+            className="w-24 rounded-lg border border-neutral-300 bg-neutral-100 px-2 py-1.5 text-sm"
+          />
+          <label className="text-sm text-neutral-600">Tip</label>
+          <select
+            value={deliveryType}
+            onChange={(e) => setDeliveryType(e.target.value as any)}
+            className="rounded-lg border border-neutral-300 bg-white px-2 py-1.5 text-sm"
+          >
+            <option value="">Tümü</option>
+            <option value="immediate">immediate</option>
+            <option value="appointment">appointment</option>
+          </select>
+          <button
+            onClick={load}
+            className="rounded-xl bg-neutral-200 px-4 py-2 text-sm font-medium text-neutral-800 hover:bg-neutral-300"
+          >
+            Yenile
+          </button>
+        </div>
       </div>
 
-      <section className="rounded-2xl border border-neutral-200/70 bg-white shadow-sm soft-card">
-        {/* Filtreler */}
-        <div className="p-4 sm:p-6">
-          <div className="-ml-2 md:-ml-4 grid gap-4 md:grid-cols-[minmax(240px,1fr)_120px_140px_160px_160px_auto] items-end">
-            {/* isim, plaka veya telefon */}
-            <div className='w-full max-w-[290px]'>
-              <div className="mb-1 text-sm font-semibold text-neutral-700">
-                İsim,Plaka veya Telefon No
-              </div>
-              <input
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                placeholder="Plaka veya telefon no"
-                className="w-full rounded-xl border border-neutral-300 bg-neutral-100 px-2.5 py-1.5 text-sm
-               text-neutral-800 outline-none ring-2 ring-transparent transition
-               placeholder:text-neutral-400 focus:bg-white focus:ring-sky-200"
-              />
-            </div>
-
-            {/* Geçiş Türü */}
-            <div>
-              <div className=" -ml-2 md:-ml-4 mb-1 text-sm font-semibold text-neutral-700">
-                Geçiş Türü
-              </div>
-              <select
-                value={passType}
-                onChange={(e) => setPassType(e.target.value)}
-                className="-ml-2 md:-ml-4  w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 outline-none ring-2 ring-transparent transition focus:bg-white focus:ring-sky-200"
-              >
-                <option value="">Tümü</option>
-                <option>Bugün</option>
-                <option>Randevulu</option>
-                <option>Ekspres</option>
-                <option>Standart</option>
-              </select>
-            </div>
-
-            {/* Duruma Göre */}
-            <div>
-              <div className=" -ml-2 md:-ml-4 mb-1 text-sm font-semibold text-neutral-700">
-                Duruma Göre
-              </div>
-              <select
-                value={byStatus}
-                onChange={(e) => setByStatus(e.target.value)}
-                className="-ml-2 md:-ml-4 w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 outline-none ring-2 ring-transparent transition focus:bg-white focus:ring-sky-200"
-              >
-                <option value="">Tümü</option>
-                <option>Beklemede</option>
-                <option>Yolda</option>
-                <option>Tamamlandı</option>
-                <option>İptal</option>
-              </select>
-            </div>
-
-            {/* Başlangıç */}
-            <div>
-              <div className="-ml-2 md:-ml-4 mb-1 text-sm font-semibold text-neutral-700">
-                Başlangıç:
-              </div>
-              <div className="relative">
-                <input
-                  type="date"
-                  value={start}
-                  onChange={(e) => setStart(e.target.value)}
-                  className="-ml-2 md:-ml-4 w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 pr-10 outline-none ring-2 ring-transparent transition focus:bg-white focus:ring-sky-200"
-                />
-                <CalendarIcon />
-              </div>
-            </div>
-
-            {/* Bitiş */}
-            <div>
-              <div className="-ml-2 md:-ml-4 mb-1 text-sm font-semibold text-neutral-700">
-                Bitiş:
-              </div>
-              <div className="relative">
-                <input
-                  type="date"
-                  value={end}
-                  onChange={(e) => setEnd(e.target.value)}
-                  className="-ml-2 md:-ml-4 w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 pr-10 outline-none ring-2 ring-transparent transition focus:bg-white focus:ring-sky-200"
-                />
-                <CalendarIcon />
-              </div>
-            </div>
+      <section className="rounded-2xl border border-neutral-200/70 bg-white shadow-sm">
+        <div className="grid gap-3 p-4 sm:grid-cols-3">
+          <div className="sm:col-span-3">
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Ara: adres, ödeme türü, not…"
+              className="w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 text-neutral-800 outline-none ring-2 ring-transparent transition placeholder:text-neutral-400 focus:bg-white focus:ring-sky-200"
+            />
           </div>
         </div>
 
-        {/* Tablo */}
-        <div className="border-t border-neutral-200/70">
-          <div className="overflow-x-auto">
-            <table className="min-w-full">
-              <thead>
-                <tr className="text-left text-sm text-neutral-500">
-                  <th className="px-4 py-2 font-medium">İsim / Plaka / Tel</th>
-                  <th className="px-4 py-2 font-medium">Geçiş Türü</th>
-                  <th className="px-4 py-2 font-medium">Durum</th>
-                  <th className="px-4 py-2 font-medium">Tarih</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((r) => (
-                  <tr key={r.id} className="border-t border-neutral-200/70 hover:bg-neutral-50">
-                    <td className="px-6 py-3">{r.name}</td>
-                    <td className="px-6 py-3">{r.type}</td>
-                    <td className="px-6 py-3">{r.status}</td>
-                    <td className="px-6 py-3">
-                      {new Date(r.date).toLocaleDateString('tr-TR')}
-                    </td>
-                  </tr>
-                ))}
+        {error && <div className="px-4 pb-2 text-sm text-rose-600">{error}</div>}
 
-                {filtered.length === 0 && (
-                  <tr>
-                    <td colSpan={4} className="px-6 py-12 text-center text-sm text-neutral-500">
-                      Kayıt bulunamadı.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+        <div className="overflow-x-auto">
+          <table className="min-w-full border-t border-neutral-200/70">
+            <thead>
+              <tr className="text-left text-sm text-neutral-500">
+                <th className="px-4 py-3 font-medium">Alış / Teslim</th>
+                <th className="px-4 py-3 font-medium">Teslimat Tipi</th>
+                <th className="px-4 py-3 font-medium">Ödeme</th>
+                <th className="px-4 py-3 font-medium">Toplam</th>
+                <th className="px-4 py-3 font-medium">Oluşturma</th>
+                <th className="px-4 py-3 font-medium w-[200px]"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading && (
+                <tr>
+                  <td colSpan={6} className="px-6 py-10 text-center text-sm text-neutral-500">
+                    Yükleniyor…
+                  </td>
+                </tr>
+              )}
+
+              {!loading && filtered.map((r) => (
+                <tr key={r.id} className="border-t border-neutral-200/70 align-top hover:bg-neutral-50">
+                  <td className="px-4 py-3">
+                    <div className="text-neutral-900 font-medium line-clamp-2">{r.pickupAddress || '-'}</div>
+                    <div className="mt-1 text-sm text-neutral-700 line-clamp-2">→ {r.dropoffAddress || '-'}</div>
+                    {r.specialNotes && <div className="mt-1 text-xs text-neutral-500">{r.specialNotes}</div>}
+                    <div className="text-[11px] text-neutral-400 mt-1">#{r.id}</div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ${badgeColor(r.deliveryType)}`}>
+                      {r.deliveryType || '-'}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-sm">{r.paymentMethod || '-'}</td>
+                  <td className="px-4 py-3 font-semibold">{fmtTRY(r.totalPrice)}</td>
+                  <td className="px-4 py-3 text-sm">{fmtDate(r.createdAt)}</td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center justify-end gap-2">
+                      <button
+                        onClick={() => setSelected(r)}
+                        className="rounded-lg bg-sky-500 px-3 py-1.5 text-sm font-semibold text-white shadow hover:bg-sky-600"
+                      >
+                        Görüntüle
+                      </button>
+                      <button
+                        onClick={() => setEditing(r)}
+                        className="rounded-lg bg-amber-500 px-3 py-1.5 text-sm font-semibold text-white shadow hover:bg-amber-600"
+                      >
+                        Düzenle
+                      </button>
+                      <button
+                        onClick={() => onDelete(r.id)}
+                        className="rounded-lg bg-rose-500 px-3 py-1.5 text-sm font-semibold text-white shadow hover:bg-rose-600"
+                      >
+                        Sil
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+
+              {!loading && filtered.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="px-6 py-12 text-center text-sm text-neutral-500">
+                    Kayıt yok.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
       </section>
+
+      {/* toast */}
+      {info && (
+        <div className="fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-lg border border-neutral-200 bg-white px-4 py-2 text-sm shadow-lg">
+          {info}
+        </div>
+      )}
+
+      {selected && <DetailModal row={selected} onClose={() => setSelected(null)} />}
+
+      {editing && (
+        <EditModal
+          row={editing}
+          onClose={() => setEditing(null)}
+          onSubmit={(payload) => onUpdate(editing.id, payload)}
+        />
+      )}
     </div>
   );
 }
 
-/* Küçük ikonlar (inline SVG) */
-function CalendarIcon() {
+/* ======== Modals ======== */
+function DetailModal({ row, onClose }: { row: ApiJob; onClose: () => void }) {
   return (
-    <svg
-      className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 h-5 w-5 text-neutral-400"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-    >
-      <rect x="3" y="4" width="18" height="18" rx="2" />
-      <path d="M16 2v4M8 2v4M3 10h18" />
-    </svg>
+    <div className="fixed inset-0 z-50 grid place-items-start overflow-y-auto bg-black/50 p-4">
+      <div className="mx-auto w-full max-w-3xl rounded-2xl bg-white shadow-xl">
+        <div className="flex items-center justify-between border-b px-5 py-4">
+          <h3 className="text-xl font-semibold">Yük Detayı</h3>
+          <button className="rounded-full p-2 hover:bg-neutral-100" onClick={onClose} aria-label="Kapat">✕</button>
+        </div>
+
+        <div className="space-y-4 p-5">
+          <Field label="Teslimat Tipi" value={row.deliveryType} />
+          <Field label="Ödeme" value={row.paymentMethod} />
+          <Field label="Toplam Ücret" value={fmtTRY(row.totalPrice)} />
+          <Field label="Oluşturma" value={fmtDate(row.createdAt)} />
+          <Field label="Alış Adresi" value={row.pickupAddress} />
+          <Field label="Teslim Adresi" value={row.dropoffAddress} />
+          <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-4">
+            <div className="mb-2 text-sm font-medium text-neutral-700">Not</div>
+            <p className="whitespace-pre-line text-neutral-800">{row.specialNotes || '-'}</p>
+          </div>
+
+          <div className="flex items-center justify-end">
+            <button onClick={onClose} className="rounded-lg bg-neutral-200 px-4 py-2 text-sm font-semibold text-neutral-800 hover:bg-neutral-300">
+              Kapat
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
-function BarsIcon() {
+function EditModal({
+  row,
+  onClose,
+  onSubmit,
+}: {
+  row: ApiJob;
+  onClose: () => void;
+  onSubmit: (payload: Partial<ApiJob>) => void;
+}) {
+  const [pickup, setPickup] = React.useState(row.pickupAddress || '');
+  const [dropoff, setDropoff] = React.useState(row.dropoffAddress || '');
+  const [notes, setNotes] = React.useState(row.specialNotes || '');
+  const [payment, setPayment] = React.useState<'cash' | 'card' | 'transfer' | ''>((row.paymentMethod as any) || '');
+  const [total, setTotal] = React.useState<number | ''>(row.totalPrice ?? '');
+
+  function save(e: React.FormEvent) {
+    e.preventDefault();
+    onSubmit({
+      pickupAddress: pickup,
+      dropoffAddress: dropoff,
+      specialNotes: notes,
+      paymentMethod: payment || undefined,
+      totalPrice: total === '' ? 0 : Number(total),
+    });
+  }
+
   return (
-    <svg
-      className="h-5 w-5 text-neutral-600"
-      viewBox="0 0 24 24"
-      fill="currentColor"
-    >
-      <rect x="3" y="5" width="4" height="14" rx="1.5" />
-      <rect x="10" y="9" width="4" height="10" rx="1.5" />
-      <rect x="17" y="7" width="4" height="12" rx="1.5" />
-    </svg>
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4" role="dialog" aria-modal="true">
+      <div className="w-full max-w-xl overflow-hidden rounded-2xl bg-white shadow-xl">
+        <div className="flex items-center justify-between border-b px-5 py-4">
+          <h3 className="text-lg font-semibold">Kaydı Düzenle</h3>
+          <button className="rounded-full p-2 hover:bg-neutral-100" onClick={onClose} aria-label="Kapat">✕</button>
+        </div>
+
+        <form onSubmit={save} className="space-y-4 p-5">
+          <div>
+            <label className="mb-1 block text-sm font-medium text-neutral-700">Alış Adresi</label>
+            <input
+              value={pickup}
+              onChange={(e) => setPickup(e.target.value)}
+              className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none focus:ring-2 focus:ring-sky-200"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium text-neutral-700">Teslim Adresi</label>
+            <input
+              value={dropoff}
+              onChange={(e) => setDropoff(e.target.value)}
+              className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none focus:ring-2 focus:ring-sky-200"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium text-neutral-700">Not</label>
+            <textarea
+              rows={4}
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none focus:ring-2 focus:ring-sky-200"
+            />
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-sm font-medium text-neutral-700">Ödeme Yöntemi</label>
+              <select
+                value={payment}
+                onChange={(e) => setPayment(e.target.value as any)}
+                className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none focus:ring-2 focus:ring-sky-200"
+              >
+                <option value="">Seçiniz</option>
+                <option value="cash">cash</option>
+                <option value="card">card</option>
+                <option value="transfer">transfer</option>
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-neutral-700">Toplam Ücret (₺)</label>
+              <input
+                type="number"
+                min={0}
+                value={total}
+                onChange={(e) => setTotal(e.target.value === '' ? '' : Math.max(0, Number(e.target.value)))}
+                className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none focus:ring-2 focus:ring-sky-200"
+              />
+            </div>
+          </div>
+
+          <div className="mt-2 flex items-center justify-end gap-3">
+            <button type="button" onClick={onClose} className="rounded-xl bg-neutral-200 px-4 py-2 text-sm font-semibold text-neutral-800 hover:bg-neutral-300">
+              İptal
+            </button>
+            <button type="submit" className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-emerald-700">
+              Kaydet
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
   );
 }
 
-function today() {
-  const d = new Date();
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  return `${d.getFullYear()}-${mm}-${dd}`;
+function Field({ label, value }: { label: string; value?: React.ReactNode }) {
+  return (
+    <div>
+      <div className="mb-1 text-sm font-medium text-neutral-600">{label}</div>
+      <div className="rounded-lg border border-neutral-200 bg-white px-3 py-2 text-neutral-900">
+        {value ?? '-'}
+      </div>
+    </div>
+  );
 }

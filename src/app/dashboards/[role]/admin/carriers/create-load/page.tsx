@@ -2,6 +2,10 @@
 
 import * as React from 'react';
 import { getAuthToken } from '@/utils/auth';
+import dynamic from 'next/dynamic';
+
+
+const MapPicker = dynamic(() => import('@/components/map/MapPicker'), { ssr: false });
 
 /* ======= types & helpers ======= */
 type DeliveryTypeUI = 'today' | 'appointment';
@@ -13,11 +17,11 @@ const EXTRA_SERVICES: Record<
   ExtraServiceKey,
   { id: number; label: string; price: number }
 > = {
-  fragile:   { id: 1, label: 'Kırılabilir / Özenli Taşıma', price: 50 },
-  helpCarry: { id: 2, label: 'Taşıma Yardımı',              price: 100 },
-  returnTrip:{ id: 3, label: 'Gidiş-Dönüş',                 price: 75 },
-  stairs:    { id: 4, label: 'Kat Hizmeti (Asansörsüz)',    price: 60 },
-  insurance: { id: 5, label: 'Sigorta',                     price: 120 },
+  fragile: { id: 1, label: 'Kırılabilir / Özenli Taşıma', price: 50 },
+  helpCarry: { id: 2, label: 'Taşıma Yardımı', price: 100 },
+  returnTrip: { id: 3, label: 'Gidiş-Dönüş', price: 75 },
+  stairs: { id: 4, label: 'Kat Hizmeti (Asansörsüz)', price: 60 },
+  insurance: { id: 5, label: 'Sigorta', price: 120 },
 };
 
 async function readJson<T = any>(res: Response): Promise<T> {
@@ -120,7 +124,7 @@ export default function CreateLoadPage() {
       .map(k => ({ serviceId: EXTRA_SERVICES[k].id, name: EXTRA_SERVICES[k].label, price: EXTRA_SERVICES[k].price }));
 
     const pLat = Number(pickupLat), pLng = Number(pickupLng);
-    const dLat = Number(dropLat),   dLng = Number(dropLng);
+    const dLat = Number(dropLat), dLng = Number(dropLng);
 
     // ---> loadType API'ye GÖNDERİLMİYOR <---
     const body = {
@@ -244,7 +248,7 @@ export default function CreateLoadPage() {
         </div>
 
         {/* Yük tipi (API'ye gönderilmiyor) */}
-       {/* <div className="mt-5">
+        {/* <div className="mt-5">
           <label className="mb-2 block text-sm font-semibold">Yük Tipi (sadece not/etiket; API'ye gönderilmiyor)</label>
           <select
             value={loadType}
@@ -260,36 +264,35 @@ export default function CreateLoadPage() {
           </select>
         </div> */}
 
-        {/* Adresler + Koordinatlar */}
-        <div className="mt-6 grid gap-6">
-          <div>
-            <label className="mb-2 block text-sm font-semibold">Gönderici Adresi</label>
-            <input
-              value={pickup}
-              onChange={(e) => setPickup(e.target.value)}
-              placeholder="Alış adresi"
-              className="w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 outline-none ring-2 ring-transparent transition focus:bg-white focus:ring-sky-200"
-            />
-            <div className="mt-3 grid grid-cols-2 gap-3">
-              <input value={pickupLat} onChange={(e) => setPickupLat(e.target.value)} placeholder="Lat 40.192" className="rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 outline-none focus:bg-white focus:ring-2 focus:ring-sky-200" />
-              <input value={pickupLng} onChange={(e) => setPickupLng(e.target.value)} placeholder="Lng 29.067" className="rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 outline-none focus:bg-white focus:ring-2 focus:ring-sky-200" />
-            </div>
-          </div>
+        {/* === GÖNDERİCİ (PICKUP) === */}
+        <MapPicker
+          label="Gönderici Konumu"
+          value={
+            pickupLat && pickupLng
+              ? { lat: Number(pickupLat), lng: Number(pickupLng), address: pickup || undefined }
+              : null
+          }
+          onChange={(p) => {
+            setPickupLat(String(p.lat));
+            setPickupLng(String(p.lng));
+            if (p.address) setPickup(p.address);
+          }}
+        />
 
-          <div>
-            <label className="mb-2 block text-sm font-semibold">Teslimat Adresi</label>
-            <input
-              value={dropoff}
-              onChange={(e) => setDropoff(e.target.value)}
-              placeholder="Teslim adresi"
-              className="w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 outline-none ring-2 ring-transparent transition focus:bg-white focus:ring-sky-200"
-            />
-            <div className="mt-3 grid grid-cols-2 gap-3">
-              <input value={dropLat} onChange={(e) => setDropLat(e.target.value)} placeholder="Lat 40.198" className="rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 outline-none focus:bg-white focus:ring-2 focus:ring-sky-200" />
-              <input value={dropLng} onChange={(e) => setDropLng(e.target.value)} placeholder="Lng 29.071" className="rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 outline-none focus:bg-white focus:ring-2 focus:ring-sky-200" />
-            </div>
-          </div>
-        </div>
+        {/* === TESLİMAT (DROPOFF) === */}
+        <MapPicker
+          label="Teslimat Konumu"
+          value={
+            dropLat && dropLng
+              ? { lat: Number(dropLat), lng: Number(dropLng), address: dropoff || undefined }
+              : null
+          }
+          onChange={(p) => {
+            setDropLat(String(p.lat));
+            setDropLng(String(p.lng));
+            if (p.address) setDropoff(p.address);
+          }}
+        />
 
         {/* Notlar */}
         <div className="mt-6">

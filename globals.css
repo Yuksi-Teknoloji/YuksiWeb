@@ -46,3 +46,11 @@ body {
     background-size: 180% 180%;
   }
 }
+
+@import "leaflet/dist/leaflet.css";
+
+/* küçük, emoji tabanlı marker */
+.leaflet-marker-div {
+  font-size: 20px;
+  line-height: 20px;
+}
