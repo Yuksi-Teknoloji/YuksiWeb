@@ -350,7 +350,7 @@ export default function DealerListPage() {
               </button>
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="max-h-[75vh] overflow-auto p-5 grid gap-4 sm:grid-cols-2">
               <div>
                 <label className="mb-1 block text-sm font-medium">Ad</label>
                 <input

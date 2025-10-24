@@ -16,6 +16,7 @@ export const NAV: Record<Role, RawNavGroup[]> = {
     items: [
       { label: "Ana",            path: "admin" },
       { label: "Genel Ayarlar",  path: "admin/settings" },
+      { label: "Admin Ekle",  path: "admin/add-admin" },
       { label: "Kullanıcı Mailleri", path: "admin/user-emails" },
       { label: "Restoran Talepleri", path: "admin/restaurant-request" },
       { label: "Şehir Fiyatları", path: "admin/city-prices" },
@@ -24,14 +25,14 @@ export const NAV: Record<Role, RawNavGroup[]> = {
   {
     title: "Fiyatlandırmalar",
     items: [
-      { label: "Restoran Fiyatlandırma", path: "admin/pricing/restaurant-packages" }
+      { label: "Restoran Fiyatlandırma", path: "admin/pricing/restaurant-packages" },
+      { label: "Kurye Fiyatlandırma", path: "admin/pricing/courier-packages" }
     ],
   },
   {
     title: "Nakliyeler",
     items: [
-      { label: "Taşıma Listesi", path: "admin/shipments/shipping-list" },
-      { label: "Yeni Taşıma",    path: "admin/shipments/new" },
+      { label: "Lojistik Takip", path: "admin/shipments/shipping-list" },
     ],
   },
   {
@@ -68,8 +69,7 @@ export const NAV: Record<Role, RawNavGroup[]> = {
   {
     title: "Kullanıcılar",
     items: [
-      { label: "Kullanıcı Listesi", path: "admin/user-list" },
-      { label: "Roller & İzinler",  path: "admin/users/roles" },
+      { label: "Kullanıcı Listesi", path: "admin/user-list" }
     ],
   },
   {
