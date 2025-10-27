@@ -2,8 +2,9 @@
 'use client';
 
 import * as React from 'react';
-import { API_BASE } from '@/configs/api';
+import { getAuthToken } from '@/utils/auth';
 
+/* ===== API tipleri ===== */
 type ApiCargoType = {
   id: number;
   name: string;
@@ -18,7 +19,24 @@ type Row = {
   description: string;
 };
 
+/* ===== yardımcılar ===== */
+async function readJson<T = any>(res: Response): Promise<T> {
+  const t = await res.text();
+  try { return t ? JSON.parse(t) : (null as any); } catch { return (t as any); }
+}
+const pickMsg = (d: any, fb: string) =>
+  d?.error?.message || d?.message || d?.detail || d?.title || fb;
+
+function bearerHeaders(token?: string | null): HeadersInit {
+  const h: HeadersInit = { Accept: 'application/json' };
+  if (token) (h as any).Authorization = `Bearer ${token}`;
+  return h;
+}
+
 export default function LoadTypesPage() {
+  const token = React.useMemo(getAuthToken, []);
+  const headers = React.useMemo<HeadersInit>(() => bearerHeaders(token), [token]);
+
   const [rows, setRows] = React.useState<Row[]>([]);
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -29,11 +47,10 @@ export default function LoadTypesPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${API_BASE}/api/CargoType`, { cache: 'no-store' });
-      const txt = await res.text();
-      const json = txt ? JSON.parse(txt) : null;
-
-      if (!res.ok) throw new Error(json?.message || json?.title || `HTTP ${res.status}`);
+      // Proxy: /yuksi + (swagger’daki /api/CargoType -> /CargoType)
+      const res = await fetch('/yuksi/CargoType', { cache: 'no-store', headers });
+      const json = await readJson(res);
+      if (!res.ok) throw new Error(pickMsg(json, `HTTP ${res.status}`));
 
       const list: ApiCargoType[] = Array.isArray(json?.data)
         ? json.data
@@ -41,9 +58,9 @@ export default function LoadTypesPage() {
 
       const mapped: Row[] = list.map((it) => ({
         id: Number(it.id),
-        name: it.name ?? '-',
+        name: String(it.name ?? '-'),
         extraPrice: Number(it.price) || 0,
-        description: it.description ?? '',
+        description: String(it.description ?? ''),
       }));
 
       setRows(mapped);
@@ -52,7 +69,7 @@ export default function LoadTypesPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [headers]);
 
   React.useEffect(() => { load(); }, [load]);
 
@@ -63,13 +80,11 @@ export default function LoadTypesPage() {
     setRows((p) => p.filter((r) => r.id !== id)); // optimistic
 
     try {
-      const res = await fetch(`${API_BASE}/api/CargoType/${id}`, { method: 'DELETE' });
+      const res = await fetch(`/yuksi/CargoType/${id}`, { method: 'DELETE', headers });
+      const j = await readJson(res);
       if (!res.ok) {
         setRows(prev);
-        const t = await res.text();
-        let msg = 'Silinemedi.';
-        try { msg = (t && JSON.parse(t)?.message) || msg; } catch {}
-        throw new Error(msg);
+        throw new Error(pickMsg(j, `HTTP ${res.status}`));
       }
     } catch (e: any) {
       alert(e?.message || 'Silinemedi.');
@@ -174,6 +189,7 @@ export default function LoadTypesPage() {
         <UpsertLoadTypeModal
           mode={open.mode}
           row={open.mode === 'edit' ? open.row : undefined}
+          headers={headers}
           onClose={() => setOpen(false)}
           onSaved={async () => { setOpen(false); await load(); }}
         />
@@ -182,16 +198,18 @@ export default function LoadTypesPage() {
   );
 }
 
-/* ---------------- Modal: Ekle/Düzenle (multipart) ---------------- */
+/* ---------------- Modal: Ekle/Düzenle (JSON) ---------------- */
 
 function UpsertLoadTypeModal({
   mode,
   row,
+  headers,
   onClose,
   onSaved,
 }: {
   mode: 'create' | 'edit';
   row?: Row;
+  headers: HeadersInit;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -206,22 +224,24 @@ function UpsertLoadTypeModal({
     setSaving(true);
     setErr(null);
     try {
-      const fd = new FormData();
-      // Alan adları Swagger ile birebir:
-      fd.append('Name', name.trim());
-      if (price !== '') fd.append('Price', price); // boşsa hiç eklemiyoruz
-      fd.append('Description', description.trim());
+      const body = {
+        name: name.trim(),
+        price: price === '' ? 0 : Number(price),
+        description: description.trim(),
+      };
 
       const url =
         mode === 'create'
-          ? `${API_BASE}/api/CargoType`
-          : `${API_BASE}/api/CargoType/${row!.id}`;
+          ? '/yuksi/CargoType'
+          : `/yuksi/CargoType/${row!.id}`;
 
-      const res = await fetch(url, { method: 'POST', body: fd });
-      const txt = await res.text();
-      const json = txt ? JSON.parse(txt) : null;
-
-      if (!res.ok) throw new Error(json?.message || json?.title || `HTTP ${res.status}`);
+      const res = await fetch(url, {
+        method: mode === 'create' ? 'POST' : 'PUT',
+        headers: { 'Content-Type': 'application/json', ...headers },
+        body: JSON.stringify(body),
+      });
+      const j = await readJson(res);
+      if (!res.ok) throw new Error(pickMsg(j, `HTTP ${res.status}`));
 
       await onSaved();
     } catch (e: any) {

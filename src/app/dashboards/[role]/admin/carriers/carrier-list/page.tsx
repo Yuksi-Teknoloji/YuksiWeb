@@ -289,13 +289,13 @@ export default function CarrierListPage() {
         <div className="overflow-x-auto">
           <table className="min-w-full border-t border-neutral-200/70">
             <thead>
-              <tr className="text-left text-sm text-neutral-500">
+                <tr className="text-left text-sm text-neutral-500">
                 <th className="px-6 py-3 font-medium w-[260px]">Ad Soyad</th>
                 <th className="px-6 py-3 font-medium w-[260px]">E-posta / Telefon</th>
                 <th className="px-6 py-3 font-medium w-[220px]">Ülke / Şehir</th>
-                <th className="px-6 py-3 font-medium w-[120px]">Aktif</th> {/* değişti */}
+                <th className="px-6 py-3 font-medium w-[120px]">Aktif</th>
                 <th className="px-6 py-3 font-medium w-[190px]">Kayıt Tarihi</th>
-                <th className="px-6 py-3 font-medium w-[260px]"></th> {/* aksiyonlar */}
+                <th className="px-6 py-3 font-medium w-[260px]"></th>
               </tr>
             </thead>
 
