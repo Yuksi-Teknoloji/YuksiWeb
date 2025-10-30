@@ -14,11 +14,15 @@ type Restaurant = {
   taxNumber: string | null;
   phone: string | null;
   fullAddress: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  openingHour?: string | null;
+  closingHour?: string | null;
 };
 
 const PAGE_SIZE = 10;
 
-/* === helpers (ekledim) === */
+/* === helpers === */
 async function readJson<T = any>(res: Response): Promise<T> {
   const t = await res.text();
   try { return t ? JSON.parse(t) : (null as any); } catch { return (t as any); }
@@ -39,9 +43,9 @@ export default function RestaurantListPage() {
   const [error, setError] = React.useState<string | null>(null);
 
   const [query, setQuery] = React.useState('');
-  const [page, setPage] = React.useState(1); // client-side sayfalama
+  const [page, setPage] = React.useState(1);
 
-  // auth header (ekledim)
+  // auth header
   const token = React.useMemo(getAuthToken, []);
   const headers = React.useMemo<HeadersInit>(() => bearerHeaders(token), [token]);
 
@@ -51,7 +55,7 @@ export default function RestaurantListPage() {
     try {
       const res = await fetch('/yuksi/Restaurant/list', {
         cache: 'no-store',
-        headers: { Accept: 'application/json' },
+        headers, // 🔒 Authorization: Bearer <token>
       });
       const txt = await res.text();
       const json: any = txt ? JSON.parse(txt) : null;
@@ -60,7 +64,7 @@ export default function RestaurantListPage() {
         throw new Error(json?.message || json?.title || json?.detail || `HTTP ${res.status}`);
       }
 
-      // Swagger yeni yapıda: DİREKT DİZİ
+      // Swagger: direkt dizi dönüyor
       const arr: any[] = Array.isArray(json)
         ? json
         : Array.isArray(json?.data)
@@ -75,17 +79,21 @@ export default function RestaurantListPage() {
         taxNumber: r?.taxNumber ?? null,
         phone: r?.phone ?? null,
         fullAddress: r?.fullAddress ?? null,
+        latitude: r?.latitude ?? null,
+        longitude: r?.longitude ?? null,
+        openingHour: r?.openingHour ?? r?.opening_hour ?? null,
+        closingHour: r?.closingHour ?? r?.closing_hour ?? null,
       }));
 
       setRows(mapped);
-      setPage(1); // her yüklemede 1. sayfaya dön
+      setPage(1);
     } catch (e: any) {
       setError(e?.message || 'Restoran listesi alınamadı.');
       setRows([]);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [headers]);
 
   React.useEffect(() => { load(); }, [load]);
 
@@ -108,7 +116,7 @@ export default function RestaurantListPage() {
 
   const createHref = `/dashboards/${role}/admin/restaurants/create-restaurant`;
 
-  /* ==== PUT / DELETE handlers (ekledim) ==== */
+  /* ==== PUT / DELETE ==== */
   const [editing, setEditing] = React.useState<Restaurant | null>(null);
   const [busyId, setBusyId] = React.useState<string | number | null>(null);
 
@@ -196,19 +204,20 @@ export default function RestaurantListPage() {
                 <th className="px-6 py-3 font-medium">Telefon</th>
                 <th className="px-6 py-3 font-medium">Vergi No</th>
                 <th className="px-6 py-3 font-medium">Adres</th>
-                <th className="px-6 py-3 font-medium w-[180px]"></th>{/* işlemler (ekledim) */}
+                <th className="px-6 py-3 font-medium">Konum</th>
+                <th className="px-6 py-3 font-medium w-[180px]"></th>
               </tr>
             </thead>
             <tbody>
               {loading && (
                 <tr>
-                  <td colSpan={7} className="px-6 py-8 text-center text-neutral-500">Yükleniyor…</td>
+                  <td colSpan={8} className="px-6 py-8 text-center text-neutral-500">Yükleniyor…</td>
                 </tr>
               )}
 
               {!loading && error && (
                 <tr>
-                  <td colSpan={7} className="px-6 py-8 whitespace-pre-wrap text-center text-rose-600">
+                  <td colSpan={8} className="px-6 py-8 whitespace-pre-wrap text-center text-rose-600">
                     {error}
                   </td>
                 </tr>
@@ -221,7 +230,16 @@ export default function RestaurantListPage() {
                   <td className="px-3 py-4"><div className="text-neutral-900">{r.email || '-'}</div></td>
                   <td className="px-3 py-4"><div className="text-neutral-900">{r.phone || '-'}</div></td>
                   <td className="px-3 py-4"><div className="text-neutral-900">{r.taxNumber || '-'}</div></td>
-                  <td className="px-3 py-4"><div className="max-w-[520px] text-neutral-900">{r.fullAddress || '-'}</div></td>
+                  <td className="px-3 py-4">
+                    <div className="max-w-[420px] text-neutral-900">{r.fullAddress || '-'}</div>
+                  </td>
+                  <td className="px-3 py-4">
+                    <div className="text-neutral-900 tabular-nums">
+                      {Number.isFinite(r.latitude as any) && Number.isFinite(r.longitude as any)
+                        ? `${r.latitude?.toFixed(6)}, ${r.longitude?.toFixed(6)}`
+                        : '—'}
+                    </div>
+                  </td>
                   <td className="px-3 py-4">
                     <div className="flex items-center justify-end gap-2">
                       <button
@@ -244,14 +262,13 @@ export default function RestaurantListPage() {
 
               {!loading && !error && pageRows.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-6 py-12 text-center text-sm text-neutral-500">Kayıt bulunamadı.</td>
+                  <td colSpan={8} className="px-6 py-12 text-center text-sm text-neutral-500">Kayıt bulunamadı.</td>
                 </tr>
               )}
             </tbody>
           </table>
         </div>
 
-        {/* Client-side sayfalama */}
         {!loading && !error && totalPages > 1 && (
           <div className="flex items-center justify-between px-6 py-4 text-sm text-neutral-600">
             <span>Sayfa {page} / {totalPages}</span>
@@ -286,7 +303,12 @@ export default function RestaurantListPage() {
   );
 }
 
-/* === Düzenle Modal (PUT body şemaya göre alanlar; hepsi opsiyonel bırakıldı) === */
+/* === Düzenle Modal — PUT /api/Restaurant/{restaurant_id} body şemasına göre ===
+   Gönderilen anahtarlar (opsiyonel): 
+   name, email, contact_person, phone, tax_number,
+   address_line1, address_line2, opening_hour, closing_hour,
+   latitude, longitude
+*/
 function EditRestaurantModal({
   row,
   onClose,
@@ -300,13 +322,11 @@ function EditRestaurantModal({
     contact_person?: string;
     phone?: string;
     tax_number?: string;
-    address_line1?: string;
-    address_line2?: string;
+    fullAddress?: string;
     opening_hour?: string;
     closing_hour?: string;
-    country_id?: number | '';
-    state_id?: number | '';
-    city_id?: number | '';
+    latitude?: number;
+    longitude?: number;
   }) => void;
 }) {
   const [name, setName] = React.useState(row.name || '');
@@ -314,13 +334,11 @@ function EditRestaurantModal({
   const [contactPerson, setContactPerson] = React.useState(row.contactPerson || '');
   const [phone, setPhone] = React.useState(row.phone || '');
   const [taxNumber, setTaxNumber] = React.useState(row.taxNumber || '');
-  const [address1, setAddress1] = React.useState(row.fullAddress || '');
-  const [address2, setAddress2] = React.useState('');
-  const [opening, setOpening] = React.useState('09:00');
-  const [closing, setClosing] = React.useState('23:00');
-  const [countryId, setCountryId] = React.useState<number | ''>('');
-  const [stateId, setStateId] = React.useState<number | ''>('');
-  const [cityId, setCityId] = React.useState<number | ''>('');
+  const [address1, setAddress1] = React.useState(row.fullAddress ?? '');
+  const [opening, setOpening] = React.useState(row.openingHour ?? '');
+  const [closing, setClosing] = React.useState(row.closingHour ?? '');
+  const [latitude, setLatitude] = React.useState<number | ''>(row.latitude ?? '');
+  const [longitude, setLongitude] = React.useState<number | ''>(row.longitude ?? '');
 
   function save(e: React.FormEvent) {
     e.preventDefault();
@@ -330,13 +348,11 @@ function EditRestaurantModal({
       contact_person: contactPerson || undefined,
       phone: phone || undefined,
       tax_number: taxNumber || undefined,
-      address_line1: address1 || undefined,
-      address_line2: address2 || undefined,
+      fullAddress: address1 || undefined,
       opening_hour: opening || undefined,
       closing_hour: closing || undefined,
-      country_id: countryId === '' ? undefined : Number(countryId),
-      state_id: stateId === '' ? undefined : Number(stateId),
-      city_id: cityId === '' ? undefined : Number(cityId),
+      latitude: latitude === '' ? undefined : Number(latitude),
+      longitude: longitude === '' ? undefined : Number(longitude),
     });
   }
 
@@ -368,23 +384,41 @@ function EditRestaurantModal({
             <Field label="Adres Satır 1">
               <input value={address1} onChange={(e) => setAddress1(e.target.value)} className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none focus:ring-2 focus:ring-sky-200" />
             </Field>
-            <Field label="Adres Satır 2">
-              <input value={address2} onChange={(e) => setAddress2(e.target.value)} className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none focus:ring-2 focus:ring-sky-200" />
+            <Field label="Enlem (latitude)">
+              <input
+                type="number"
+                step="0.000001"
+                value={latitude as any}
+                onChange={(e) => setLatitude(e.target.value === '' ? '' : Number(e.target.value))}
+                className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none focus:ring-2 focus:ring-sky-200"
+              />
+            </Field>
+            <Field label="Boylam (longitude)">
+              <input
+                type="number"
+                step="0.000001"
+                value={longitude as any}
+                onChange={(e) => setLongitude(e.target.value === '' ? '' : Number(e.target.value))}
+                className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none focus:ring-2 focus:ring-sky-200"
+              />
             </Field>
             <Field label="Açılış">
-              <input value={opening} onChange={(e) => setOpening(e.target.value)} placeholder="09:00" className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none focus:ring-2 focus:ring-sky-200" />
+              <input
+                type="time"
+                value={opening ?? ''}
+                onChange={(e) => setOpening(e.target.value)}
+                placeholder="09:00"
+                className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none focus:ring-2 focus:ring-sky-200"
+              />
             </Field>
             <Field label="Kapanış">
-              <input value={closing} onChange={(e) => setClosing(e.target.value)} placeholder="23:00" className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none focus:ring-2 focus:ring-sky-200" />
-            </Field>
-            <Field label="Ülke ID">
-              <input type="number" min={1} value={countryId as any} onChange={(e) => setCountryId(e.target.value === '' ? '' : Number(e.target.value))} className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none focus:ring-2 focus:ring-sky-200" />
-            </Field>
-            <Field label="Eyalet/İl ID">
-              <input type="number" min={1} value={stateId as any} onChange={(e) => setStateId(e.target.value === '' ? '' : Number(e.target.value))} className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none focus:ring-2 focus:ring-sky-200" />
-            </Field>
-            <Field label="Şehir ID">
-              <input type="number" min={1} value={cityId as any} onChange={(e) => setCityId(e.target.value === '' ? '' : Number(e.target.value))} className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none focus:ring-2 focus:ring-sky-200" />
+              <input
+                type="time"
+                value={closing ?? ''}
+                onChange={(e) => setClosing(e.target.value)}
+                placeholder="23:00"
+                className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none focus:ring-2 focus:ring-sky-200"
+              />
             </Field>
           </div>
 
