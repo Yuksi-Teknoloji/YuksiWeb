@@ -11,8 +11,8 @@ type CreateCompanyBody = {
   specialCommissionRate: number;
   isVisible: boolean;
   canReceivePayments: boolean;
-  cityId: number;      // = seçilen ŞEHİR (state) ID
-  districtId: number;  // = seçilen İLÇE (city) ID
+  stateId: number;      // = seçilen ŞEHİR (state) ID
+  cityId: number;  // = seçilen İLÇE (city) ID
   location: string;
   companyName: string;
   companyPhone: string;
@@ -157,8 +157,8 @@ export default function CreateCompaniesPage() {
       specialCommissionRate: Number(form.specialCommissionRate) || 0,
       isVisible: !!form.isVisible,
       canReceivePayments: !!form.canReceivePayments,
-      cityId: Number(stateId),     // <— ŞEHİR (state)
-      districtId: Number(cityId),  // <— İLÇE (city)
+      stateId,     // <— ŞEHİR (state)
+      cityId,  // <— İLÇE (city)
       location: form.location.trim(),
       companyName: form.companyName.trim(),
       companyPhone: form.companyPhone.trim(),

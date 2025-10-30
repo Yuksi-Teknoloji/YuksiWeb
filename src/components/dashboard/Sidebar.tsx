@@ -8,7 +8,7 @@ import { ChevronRight } from "lucide-react";
 const ROLE_TITLES: Record<string, string> = {
   admin: "Admin",
   restaurant: "Restoran",
-  bayi: "Bayi",
+  dealer: "Bayi",
   corporate: "Kurumsal",
   marketing: "Pazarlama",
 };

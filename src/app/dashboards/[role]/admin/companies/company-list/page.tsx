@@ -12,8 +12,8 @@ type ApiCompany = {
   companyTrackingNo: string;
   companyName: string;
   companyPhone: string;
-  cityId: number;        // IL (state)
-  districtId: number;    // ILÇE (city)
+  stateId: number;        // IL (state)
+  cityId: number;         // ILÇE (city)
   location?: string;
   description?: string;
   isVisible?: boolean;
@@ -119,17 +119,17 @@ export default function CompanyListPage() {
 
   React.useEffect(() => { load(); }, [load]);
 
-  /* görünen state’lerin şehirlerini cachele */
+  /* GÖRÜNEN İLLERİN İLÇELERİNİ CACHELE — FIX: stateId kullan */
   React.useEffect(() => {
-    const needed = Array.from(new Set(rows.map(r => Number(r.cityId)).filter(Number.isFinite)));
-    const missing = needed.filter((sid) => !cityMapByState[sid]);
+    const neededStateIds = Array.from(new Set(rows.map(r => Number(r.stateId)).filter(Number.isFinite)));
+    const missing = neededStateIds.filter((sid) => !cityMapByState[sid]);
     if (missing.length === 0) return;
     (async () => {
       try {
         const bag: Record<number, Record<number, string>> = {};
         for (const sid of missing) {
           const url = new URL('/yuksi/geo/cities', location.origin);
-          url.searchParams.set('state_id', String(sid));
+          url.searchParams.set('state_id', String(sid)); // doğru: state_id = IL
           url.searchParams.set('limit', '1000');
           url.searchParams.set('offset', '0');
           const res = await fetch(url.toString(), { headers, cache: 'no-store' });
@@ -193,8 +193,8 @@ export default function CompanyListPage() {
         specialCommissionRate: body.specialCommissionRate ?? cur.specialCommissionRate ?? 0,
         isVisible: body.isVisible ?? (cur.isVisible ?? true),
         canReceivePayments: body.canReceivePayments ?? (cur.canReceivePayments ?? true),
+        stateId: body.stateId ?? cur.stateId,
         cityId: body.cityId ?? cur.cityId,
-        districtId: body.districtId ?? cur.districtId,
         location: body.location ?? cur.location ?? '',
         companyName: body.companyName ?? cur.companyName ?? '',
         companyPhone: body.companyPhone ?? cur.companyPhone ?? '',
@@ -319,8 +319,8 @@ export default function CompanyListPage() {
                       <div className="text-xs text-neutral-500 truncate">#{c.companyTrackingNo}</div>
                     </td>
                     <td className="px-3 py-4"><div className="text-neutral-900">{c.companyPhone || '-'}</div></td>
-                    <td className="px-3 py-4"><div className="text-neutral-900">{nameOfState(c.cityId)}</div></td>
-                    <td className="px-3 py-4"><div className="text-neutral-900">{nameOfCity(c.cityId, c.districtId)}</div></td>
+                    <td className="px-3 py-4"><div className="text-neutral-900">{nameOfState(c.stateId)}</div></td>
+                    <td className="px-3 py-4"><div className="text-neutral-900">{nameOfCity(c.stateId, c.cityId)}</div></td>
                     <td className="px-3 py-4"><div className="text-neutral-900">{Number(c.specialCommissionRate ?? 0)}</div></td>
                     <td className="px-3 py-4">
                       <div className="text-neutral-900">
@@ -454,8 +454,8 @@ function EditCompanyModal({
             ))}
 
             {/* numeric fields */}
-            <FieldNumber label="İl ID" value={form.cityId ?? 0} onChange={(v) => set('cityId', v)} />
-            <FieldNumber label="İlçe ID" value={form.districtId ?? 0} onChange={(v) => set('districtId', v)} />
+            <FieldNumber label="İl ID" value={form.stateId ?? 0} onChange={(v) => set('stateId', v)} />
+            <FieldNumber label="İlçe ID" value={form.cityId ?? 0} onChange={(v) => set('cityId', v)} />
             <FieldNumber label="Atanan KM" value={form.assignedKilometers ?? 0} onChange={(v) => set('assignedKilometers', v)} />
             <FieldNumber label="Tüketilen KM" value={form.consumedKilometers ?? 0} onChange={(v) => set('consumedKilometers', v)} />
             <FieldNumber label="Komisyon (%)" step="0.01" value={form.specialCommissionRate ?? 0} onChange={(v) => set('specialCommissionRate', v)} />

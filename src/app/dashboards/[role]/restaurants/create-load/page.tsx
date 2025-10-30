@@ -1,314 +1,375 @@
-// src/app/dashboards/[role]/admin/orders/create-order/page.tsx
 'use client';
 
 import * as React from 'react';
+import { getAuthToken } from '@/utils/auth';
+import dynamic from 'next/dynamic';
 
-/* ---------- küçük yardımcılar ---------- */
-async function readJson(res: Response) {
+
+const MapPicker = dynamic(() => import('@/components/map/MapPicker'), { ssr: false });
+
+/* ======= types & helpers ======= */
+type DeliveryTypeUI = 'today' | 'appointment';
+type DeliveryTypeAPI = 'immediate' | 'appointment';
+
+type ExtraServiceKey = 'fragile' | 'helpCarry' | 'returnTrip' | 'stairs' | 'insurance';
+
+const EXTRA_SERVICES: Record<
+  ExtraServiceKey,
+  { id: number; label: string; price: number }
+> = {
+  fragile: { id: 1, label: 'Kırılabilir / Özenli Taşıma', price: 50 },
+  helpCarry: { id: 2, label: 'Taşıma Yardımı', price: 100 },
+  returnTrip: { id: 3, label: 'Gidiş-Dönüş', price: 75 },
+  stairs: { id: 4, label: 'Kat Hizmeti (Asansörsüz)', price: 60 },
+  insurance: { id: 5, label: 'Sigorta', price: 120 },
+};
+
+async function readJson<T = any>(res: Response): Promise<T> {
   const t = await res.text();
-  try { return t ? JSON.parse(t) : null; } catch { return null; }
+  try { return t ? JSON.parse(t) : (null as any); } catch { return (t as any); }
 }
-const pickMsg = (d: any, fb: string) =>
-  d?.message || d?.title || d?.detail || d?.error?.message || fb;
+const pickMsg = (d: any, fb: string) => d?.error?.message || d?.message || d?.detail || d?.title || fb;
 
-function getCookie(name: string) {
-  if (typeof document === 'undefined') return '';
-  const m = document.cookie.match(new RegExp('(?:^|; )' + name.replace(/([$?*|{}\]\\^])/g,'\\$1') + '=([^;]*)'));
-  return m ? decodeURIComponent(m[1]) : '';
-}
+// API errorları için güçlü toplayıcı (array object, array string, map vs.)
+function collectErrors(x: any): string {
+  const msgs: string[] = [];
+  if (x?.message) msgs.push(String(x.message));
+  if (x?.data?.message) msgs.push(String(x.data.message));
+  const err = x?.errors || x?.error || x?.detail;
 
-// JWT decode (payload)
-function decodeJwtPayload(token: string | null | undefined): any | null {
-  if (!token) return null;
-  const raw = token.replace(/^Bearer\s+/i, '');
-  const parts = raw.split('.');
-  if (parts.length < 2) return null;
-  try {
-    const json = atob(parts[1].replace(/-/g, '+').replace(/_/g, '/'));
-    return JSON.parse(decodeURIComponent(escape(json)));
-  } catch { return null; }
-}
-
-// Token’ı olası yerlerden dene
-function findToken(): string | null {
-  if (typeof window === 'undefined') return null;
-  const candKeys = ['auth_token','access_token','token','jwt','id_token','auth','user','session'];
-  for (const k of candKeys) {
-    const v = localStorage.getItem(k);
-    if (!v) continue;
-    try {
-      const maybe = JSON.parse(v);
-      if (typeof maybe === 'string') return maybe;
-      if (typeof maybe?.auth_token === 'string') return maybe.auth_token;
-      if (typeof maybe?.access_token === 'string') return maybe.access_token;
-      if (typeof maybe?.token === 'string') return maybe.token;
-      if (typeof maybe?.jwt === 'string') return maybe.jwt;
-    } catch {
-      if (typeof v === 'string' && v.split('.').length >= 2) return v;
+  if (Array.isArray(err)) {
+    for (const it of err) {
+      if (typeof it === 'string') msgs.push(it);
+      else if (it && typeof it === 'object') {
+        const loc = Array.isArray(it.loc) ? it.loc.join('.') : it.loc ?? '';
+        const m = it.msg || it.message || it.detail;
+        if (loc && m) msgs.push(`${loc}: ${m}`);
+        else if (m) msgs.push(String(m));
+      }
+    }
+  } else if (err && typeof err === 'object') {
+    for (const [k, v] of Object.entries(err)) {
+      if (Array.isArray(v)) (v as any[]).forEach(m => msgs.push(`${k}: ${m}`));
+      else if (v) msgs.push(`${k}: ${v}`);
     }
   }
-  const cookieCandidates = ['auth_token','access_token','token','jwt','Authorization'];
-  for (const c of cookieCandidates) {
-    const cv = getCookie(c);
-    if (cv) return cv;
-  }
-  return null;
+  return msgs.join('\n');
 }
 
-/* ---------- API alanları ---------- */
-type ApiType = 'yerinde' | 'paket_servis' | 'gel_al';
-type Item = { id: string; product_name: string; price: number; quantity: number };
+/* ======= page ======= */
+export default function CreateLoadPage() {
+  // UI state
+  const [deliveryType, setDeliveryType] = React.useState<DeliveryTypeUI>('today');
 
-export default function RestaurantOrderCreate() {
-  // hem restaurantId (path’te) hem userId (payload’ta)
-  const [restaurantId, setRestaurantId] = React.useState<string | null>(null);
-  const [userId, setUserId] = React.useState<string | null>(null);
-  const [idErr, setIdErr] = React.useState<string | null>(null);
+  const [carrierType, setCarrierType] = React.useState('courier');       // swagger örneği 'courier'
+  const [carrierVehicle, setCarrierVehicle] = React.useState('motorcycle'); // 'motorcycle'
 
-  // form state
-  const [customer, setCustomer] = React.useState('');
-  const [phone, setPhone] = React.useState('');
-  const [address, setAddress] = React.useState('');
-  const [deliveryAddress, setDeliveryAddress] = React.useState('');
-  const [type, setType] = React.useState<ApiType>('yerinde');
-  const [carrierType, setCarrierType] = React.useState('kurye');
-  const [vehicleType, setVehicleType] = React.useState<'2_teker_motosiklet'|'3_teker_motosiklet'>('2_teker_motosiklet');
-  const [cargoType, setCargoType] = React.useState('');
-  const [special, setSpecial] = React.useState('');
-  const [items, setItems] = React.useState<Item[]>([
-    { id: crypto.randomUUID(), product_name: '', price: 0, quantity: 1 },
-  ]);
+  const [loadType, setLoadType] = React.useState(''); // UI’da dursun, API’ye gönderilmeyecek
 
-  const amount = React.useMemo(
-    () => items.reduce((s, i) => s + (Number(i.price)||0) * (Number(i.quantity)||0), 0),
-    [items]
+  const [pickup, setPickup] = React.useState('');
+  const [pickupLat, setPickupLat] = React.useState<string>('');
+  const [pickupLng, setPickupLng] = React.useState<string>('');
+
+  const [dropoff, setDropoff] = React.useState('');
+  const [dropLat, setDropLat] = React.useState<string>('');
+  const [dropLng, setDropLng] = React.useState<string>('');
+
+  const [note, setNote] = React.useState('');
+
+  const [coupon, setCoupon] = React.useState('');
+  const [couponApplied, setCouponApplied] = React.useState<string | null>(null);
+
+  const [extras, setExtras] = React.useState<Record<ExtraServiceKey, boolean>>({
+    fragile: false, helpCarry: false, returnTrip: false, stairs: false, insurance: false,
+  });
+
+  const [basePrice, setBasePrice] = React.useState<number | ''>(''); // manuel taban ücret
+  const extrasTotal = React.useMemo(
+    () => (Object.keys(extras) as ExtraServiceKey[])
+      .filter(k => extras[k])
+      .reduce((sum, k) => sum + EXTRA_SERVICES[k].price, 0),
+    [extras]
   );
+  const computedTotal = (Number(basePrice || 0) + extrasTotal);
 
-  const [saving, setSaving] = React.useState(false);
-  const [ok, setOk] = React.useState<string | null>(null);
-  const [err, setErr] = React.useState<string | null>(null);
+  // !!! allowed: 'cash' | 'card' | 'transfer'
+  const [payMethod, setPayMethod] = React.useState<'cash' | 'card' | 'transfer' | ''>('');
 
-  // Mount: token’dan userId/restaurantId çek
-  React.useEffect(() => {
-    const token = findToken();
-    const payload = decodeJwtPayload(token || undefined);
+  const [files, setFiles] = React.useState<File[]>([]);
 
-    // JWT örneğin:
-    // {
-    //   "userId": "0d4b1d8e-...b67",
-    //   "userType": "restaurant",
-    //   ...
-    // }
-    const uid =
-      (payload?.userId && String(payload.userId)) ||
-      (payload?.sub && String(payload.sub)) || null;
+  const [busy, setBusy] = React.useState(false);
+  const [okMsg, setOkMsg] = React.useState<string | null>(null);
+  const [errMsg, setErrMsg] = React.useState<string | null>(null);
 
-    // restaurant tarafında restaurant_id = userId
-    const ridFromLS = typeof window !== 'undefined' ? localStorage.getItem('restaurant_id') : null;
-    const rid = ridFromLS || uid;
+  const token = React.useMemo(getAuthToken, []);
 
-    if (uid) setUserId(uid);
-    if (rid) setRestaurantId(rid);
-
-    if (!rid) {
-      setIdErr('Token içinde restaurant_id/userId bulunamadı.');
-    } else {
-      setIdErr(null);
-    }
-  }, []);
-
-  // kalem helpers
-  function addItem() {
-    setItems(p => [...p, { id: crypto.randomUUID(), product_name: '', price: 0, quantity: 1 }]);
-  }
-  function updateItem(id: string, patch: Partial<Item>) {
-    setItems(p => p.map(x => (x.id === id ? { ...x, ...patch } : x)));
-  }
-  function removeItem(id: string) {
-    setItems(p => (p.length > 1 ? p.filter(x => x.id !== id) : p));
+  function toggleExtra(key: ExtraServiceKey) { setExtras(p => ({ ...p, [key]: !p[key] })); }
+  function applyCoupon() { if (coupon.trim()) setCouponApplied(coupon.trim()); }
+  function onUploadChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const list = e.target.files ? Array.from(e.target.files) : [];
+    if (list.length) setFiles(p => [...p, ...list]);
   }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    setOk(null); setErr(null);
+    setOkMsg(null); setErrMsg(null);
 
-    if (!restaurantId) {
-      setErr(idErr || 'Restaurant ID yok.');
-      return;
-    }
+    if (!pickup || !dropoff) { setErrMsg('Adresleri girin.'); return; }
+    if (!payMethod) { setErrMsg('Ödeme yöntemi seçin.'); return; }
 
-    setSaving(true);
+    const deliveryTypeApi: DeliveryTypeAPI = deliveryType === 'today' ? 'immediate' : 'appointment';
+
+    const extraServices = (Object.keys(extras) as ExtraServiceKey[])
+      .filter(k => extras[k])
+      .map(k => ({ serviceId: EXTRA_SERVICES[k].id, name: EXTRA_SERVICES[k].label, price: EXTRA_SERVICES[k].price }));
+
+    const pLat = Number(pickupLat), pLng = Number(pickupLng);
+    const dLat = Number(dropLat), dLng = Number(dropLng);
+
+    // ---> loadType API'ye GÖNDERİLMİYOR <---
+    const body = {
+      deliveryType: deliveryTypeApi,
+      carrierType,
+      vehicleType: carrierVehicle,
+      pickupAddress: pickup,
+      pickupCoordinates: (Number.isFinite(pLat) && Number.isFinite(pLng)) ? [pLat, pLng] : undefined,
+      dropoffAddress: dropoff,
+      dropoffCoordinates: (Number.isFinite(dLat) && Number.isFinite(dLng)) ? [dLat, dLng] : undefined,
+      specialNotes: note || undefined,
+      campaignCode: couponApplied || (coupon.trim() || undefined),
+      extraServices,
+      extraServicesTotal: extrasTotal,
+      totalPrice: computedTotal,
+      paymentMethod: payMethod, // 'cash' | 'card' | 'transfer'
+      imageFileIds: [],
+    };
+
+    setBusy(true);
     try {
-      const cleanItems = items
-        .filter(i => i.product_name.trim() && i.quantity > 0)
-        .map(i => ({
-          product_name: i.product_name.trim(),
-          price: +Number(i.price || 0).toFixed(2),
-          quantity: Number(i.quantity || 0),
-        }));
-      if (cleanItems.length === 0) throw new Error('En az bir ürün ekleyin.');
-
-      // 👉 user_id’yi payload’a ekliyoruz
-      const payload = {
-        user_id: userId || restaurantId, // garanti olsun
-        customer: customer.trim(),
-        phone: phone.trim(),
-        address: address.trim(),
-        delivery_address: (deliveryAddress || address).trim(),
-        type,
-        amount: +amount.toFixed(2),
-        carrier_type: carrierType || 'kurye',
-        vehicle_type: vehicleType,
-        cargo_type: cargoType || 'string',
-        special_requests: special || '',
-        items: cleanItems,
-      };
-
-      const token = findToken();
-
-      const res = await fetch(`/yuksi/restaurant/${restaurantId}/orders`, {
+      const res = await fetch('/yuksi/admin/jobs', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(body),
       });
-      const data = await readJson(res);
-      if (!res.ok) throw new Error(pickMsg(data, `HTTP ${res.status}`));
+      const j = await readJson(res);
+      if (!res.ok || (j && j.success === false)) {
+        throw new Error(collectErrors(j) || pickMsg(j, `HTTP ${res.status}`));
+      }
 
-      setOk(data?.message || `Sipariş oluşturuldu (ID: ${data?.data?.id || '—'})`);
-
-      // form reset
-      (e.target as HTMLFormElement).reset?.();
-      setCustomer(''); setPhone(''); setAddress(''); setDeliveryAddress('');
-      setType('yerinde'); setCarrierType('kurye'); setVehicleType('2_teker_motosiklet');
-      setCargoType(''); setSpecial('');
-      setItems([{ id: crypto.randomUUID(), product_name: '', price: 0, quantity: 1 }]);
-    } catch (ex: any) {
-      setErr(ex?.message || 'Sipariş gönderilemedi.');
+      setOkMsg(collectErrors(j) || 'Gönderi oluşturuldu.');
+      // reset
+      setPickup(''); setPickupLat(''); setPickupLng('');
+      setDropoff(''); setDropLat(''); setDropLng('');
+      setNote(''); setCoupon(''); setCouponApplied(null);
+      setExtras({ fragile: false, helpCarry: false, returnTrip: false, stairs: false, insurance: false });
+      setBasePrice(''); setPayMethod(''); setFiles([]);
+    } catch (e: any) {
+      setErrMsg(e?.message || 'Gönderi oluşturulamadı.');
     } finally {
-      setSaving(false);
+      setBusy(false);
     }
   }
 
   return (
     <form onSubmit={submit} className="space-y-6">
-      <h1 className="text-2xl font-semibold">Yeni Sipariş</h1>
-
-      {/* ID bilgi alanı (debug/farkındalık) */}
-      <div className="text-xs text-neutral-600">
-        {restaurantId ? <>restaurant_id: <b>{restaurantId}</b></> : <>{idErr}</>}
-        {userId && <> • user_id: <b>{userId}</b></>}
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-semibold">Yeni Gönderi</h1>
       </div>
 
-      {/* Temel alanlar */}
-      <section className="rounded-2xl border border-neutral-200/70 bg-white p-6 shadow-sm">
-        <div className="grid gap-4 md:grid-cols-2">
-          <div>
-            <label className="mb-1 block text-sm font-medium">Müşteri</label>
-            <input value={customer} onChange={e=>setCustomer(e.target.value)} required className="w-full rounded-xl border px-3 py-2"/>
-          </div>
-          <div>
-            <label className="mb-1 block text-sm font-medium">Telefon</label>
-            <input value={phone} onChange={e=>setPhone(e.target.value)} required className="w-full rounded-xl border px-3 py-2"/>
-          </div>
-          <div>
-            <label className="mb-1 block text-sm font-medium">Adres</label>
-            <input value={address} onChange={e=>setAddress(e.target.value)} required className="w-full rounded-xl border px-3 py-2"/>
-          </div>
-          <div>
-            <label className="mb-1 block text-sm font-medium">Teslimat Adresi</label>
-            <input value={deliveryAddress} onChange={e=>setDeliveryAddress(e.target.value)} className="w-full rounded-xl border px-3 py-2" placeholder="Boş bırakılırsa Adres kullanılır"/>
-          </div>
-          <div>
-            <label className="mb-1 block text-sm font-medium">Sipariş Tipi</label>
-            <select value={type} onChange={e=>setType(e.target.value as ApiType)} className="w-full rounded-xl border px-3 py-2">
-              <option value="yerinde">Yerinde</option>
-              <option value="gel_al">Gel-Al</option>
-              <option value="paket_servis">Paket Servis</option>
-            </select>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="mb-1 block text-sm font-medium">Taşıyıcı</label>
-              <select value={carrierType} onChange={e=>setCarrierType(e.target.value)} className="w-full rounded-xl border px-3 py-2">
-                <option value="kurye">kurye</option>
-              </select>
-            </div>
-            <div>
-              <label className="mb-1 block text-sm font-medium">Araç</label>
-              <select value={vehicleType} onChange={e=>setVehicleType(e.target.value as any)} className="w-full rounded-xl border px-3 py-2">
-                <option value="2_teker_motosiklet">2_teker_motosiklet</option>
-                <option value="3_teker_motosiklet">3_teker_motosiklet</option>
-              </select>
-            </div>
-          </div>
-          <div>
-            <label className="mb-1 block text-sm font-medium">Kargo Tipi</label>
-            <input value={cargoType} onChange={e=>setCargoType(e.target.value)} className="w-full rounded-xl border px-3 py-2" />
-          </div>
-          <div>
-            <label className="mb-1 block text-sm font-medium">Özel İstek</label>
-            <input value={special} onChange={e=>setSpecial(e.target.value)} className="w-full rounded-xl border px-3 py-2" />
-          </div>
+      {okMsg && <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 whitespace-pre-line">{okMsg}</div>}
+      {errMsg && <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 whitespace-pre-line">{errMsg}</div>}
+
+      {/* Gönderim Tipi */}
+      <section className="rounded-2xl border border-neutral-200/70 bg-white p-6 shadow-sm soft-card">
+        <h2 className="mb-4 text-lg font-semibold">Gönderim Tipi</h2>
+        <div className="flex gap-3">
+          <button
+            type="button"
+            onClick={() => setDeliveryType('today')}
+            className={[
+              'rounded-xl px-5 py-2 text-sm font-semibold shadow-sm border',
+              deliveryType === 'today'
+                ? 'bg-indigo-500 text-white border-indigo-500'
+                : 'bg-white text-neutral-800 border-neutral-300 hover:bg-neutral-50',
+            ].join(' ')}
+          >
+            Bugün (immediate)
+          </button>
+          <button
+            type="button"
+            onClick={() => setDeliveryType('appointment')}
+            className={[
+              'rounded-xl px-5 py-2 text-sm font-semibold shadow-sm border',
+              deliveryType === 'appointment'
+                ? 'bg-indigo-500 text-white border-indigo-500'
+                : 'bg-white text-neutral-800 border-neutral-300 hover:bg-neutral-50',
+            ].join(' ')}
+          >
+            Randevulu (appointment)
+          </button>
         </div>
       </section>
 
-      {/* Kalemler */}
-      <section className="rounded-2xl border border-neutral-200/70 bg-white p-6 shadow-sm">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold">Kalemler</h2>
-          <button type="button" onClick={addItem} className="rounded-lg border px-3 py-1.5 text-sm hover:bg-neutral-50">+ Ekle</button>
+      {/* Üst alanlar */}
+      <section className="rounded-2xl border border-neutral-200/70 bg-white p-6 shadow-sm soft-card">
+        <div className="grid gap-5 md:grid-cols-2">
+          {/* Taşıyıcı Tipi */}
+          <div>
+            <label className="mb-2 block text-sm font-semibold">Taşıyıcı Tipi</label>
+            <select
+              value={carrierType}
+              onChange={(e) => setCarrierType(e.target.value)}
+              className="w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 outline-none ring-2 ring-transparent transition focus:bg-white focus:ring-sky-200"
+            >
+              <option value="courier">Kurye</option>
+              <option value="minivan">Minivan</option>
+              <option value="panelvan">Panelvan</option>
+              <option value="truck">Kamyonet</option>
+            </select>
+          </div>
+
+          {/* Taşıyıcı Aracı */}
+          <div>
+            <label className="mb-2 block text-sm font-semibold">Taşıyıcı Aracı</label>
+            <select
+              value={carrierVehicle}
+              onChange={(e) => setCarrierVehicle(e.target.value)}
+              className="w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 outline-none ring-2 ring-transparent transition focus:bg-white focus:ring-sky-200"
+            >
+              <option value="motorcycle">2 Teker (Motosiklet)</option>
+              <option value="threewheeler">3 Teker</option>
+              <option value="hatchback">Hatchback</option>
+              <option value="boxvan">Kapalı Kasa</option>
+            </select>
+          </div>
         </div>
 
-        <div className="mt-3 grid gap-3">
-          {items.map(it => (
-            <div key={it.id} className="grid gap-3 sm:grid-cols-[1fr,140px,140px,100px]">
-              <input
-                value={it.product_name}
-                onChange={e=>updateItem(it.id, { product_name: e.target.value })}
-                placeholder="Ürün adı"
-                className="rounded-xl border px-3 py-2"
-              />
-              <input
-                type="number"
-                step="0.01"
-                value={it.price}
-                onChange={e=>updateItem(it.id, { price: Number(e.target.value) || 0 })}
-                className="rounded-xl border px-3 py-2 text-right"
-              />
-              <input
-                type="number"
-                min={1}
-                value={it.quantity}
-                onChange={e=>updateItem(it.id, { quantity: Math.max(1, Number(e.target.value) || 1) })}
-                className="rounded-xl border px-3 py-2 text-right"
-              />
-              <div className="flex items-center justify-between">
-                <strong className="tabular-nums">{((it.price||0)*(it.quantity||0)).toFixed(2)}₺</strong>
-                <button type="button" onClick={()=>removeItem(it.id)} className="rounded-md bg-rose-100 px-3 py-1.5 text-sm text-rose-700 hover:bg-rose-200">Sil</button>
+        {/* Yük tipi (API'ye gönderilmiyor) */}
+        {/* <div className="mt-5">
+          <label className="mb-2 block text-sm font-semibold">Yük Tipi (sadece not/etiket; API'ye gönderilmiyor)</label>
+          <select
+            value={loadType}
+            onChange={(e) => setLoadType(e.target.value)}
+            className="w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 outline-none ring-2 ring-transparent transition focus:bg-white focus:ring-sky-200"
+          >
+            <option value="">Seçiniz</option>
+            <option value="smallPackage">Küçük Paket</option>
+            <option value="document">Evrak</option>
+            <option value="furniture">Mobilya</option>
+            <option value="appliance">Beyaz Eşya</option>
+            <option value="fragile">Hassas / Kırılabilir</option>
+          </select>
+        </div> */}
+
+        {/* === GÖNDERİCİ (PICKUP) === */}
+        <MapPicker
+          label="Gönderici Konumu"
+          value={
+            pickupLat && pickupLng
+              ? { lat: Number(pickupLat), lng: Number(pickupLng), address: pickup || undefined }
+              : null
+          }
+          onChange={(p) => {
+            setPickupLat(String(p.lat));
+            setPickupLng(String(p.lng));
+            if (p.address) setPickup(p.address);
+          }}
+        />
+
+        {/* === TESLİMAT (DROPOFF) === */}
+        <MapPicker
+          label="Teslimat Konumu"
+          value={
+            dropLat && dropLng
+              ? { lat: Number(dropLat), lng: Number(dropLng), address: dropoff || undefined }
+              : null
+          }
+          onChange={(p) => {
+            setDropLat(String(p.lat));
+            setDropLng(String(p.lng));
+            if (p.address) setDropoff(p.address);
+          }}
+        />
+
+        {/* Notlar */}
+        <div className="mt-6">
+          <label className="mb-2 block text-sm font-semibold">Özel Notlar</label>
+          <textarea rows={4} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Örn: Paket sıcak kalmalı…" className="w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 outline-none ring-2 ring-transparent transition focus:bg-white focus:ring-sky-200" />
+        </div>
+      </section>
+
+      {/* Alt alanlar */}
+      <section className="rounded-2xl border border-neutral-200/70 bg-white p-6 shadow-sm soft-card">
+        {/* Kupon */}
+        <div className="mb-6">
+          <label className="mb-2 block text-sm font-semibold">Kampanya Kodu</label>
+          <div className="flex overflow-hidden rounded-xl border border-neutral-300">
+            <input value={coupon} onChange={(e) => setCoupon(e.target.value)} placeholder="Kodu yazın" className="w-full bg-neutral-100 px-3 py-2 outline-none" />
+            <button type="button" onClick={applyCoupon} className="bg-rose-50 px-4 text-rose-600 hover:bg-rose-100">Uygula</button>
+          </div>
+          {couponApplied && <div className="mt-2 text-sm text-emerald-600">“{couponApplied}” kuponu uygulandı.</div>}
+        </div>
+
+        {/* Ek Hizmetler */}
+        <div className="mb-2 text-sm font-semibold">Ek Hizmetler</div>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {(Object.keys(EXTRA_SERVICES) as ExtraServiceKey[]).map((k) => (
+            <label key={k} className="flex cursor-pointer items-center justify-between rounded-xl border border-neutral-200 px-3 py-2 hover:bg-neutral-50">
+              <div className="flex items-center gap-2">
+                <input type="checkbox" checked={extras[k]} onChange={() => toggleExtra(k)} className="h-4 w-4" />
+                <span className="text-sm">{EXTRA_SERVICES[k].label}</span>
               </div>
-            </div>
+              <span className="text-sm font-semibold">{EXTRA_SERVICES[k].price.toFixed(0)}₺</span>
+            </label>
           ))}
         </div>
 
-        <div className="mt-4 flex items-center justify-end gap-4">
-          <span className="text-sm">Genel Toplam</span>
-          <span className="text-base font-bold tabular-nums">{amount.toFixed(2)}₺</span>
+        <div className="mt-4 grid gap-4 md:grid-cols-3">
+          <div>
+            <label className="mb-1 block text-sm font-semibold">Taban Ücret (₺)</label>
+            <input type="number" min={0} value={basePrice} onChange={(e) => setBasePrice(e.target.value === '' ? '' : Math.max(0, Number(e.target.value)))} className="w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 outline-none focus:bg-white focus:ring-2 focus:ring-sky-200" />
+          </div>
+          <div className="self-end text-sm">
+            <div><span className="font-semibold">Ek Hizmet Toplamı: </span>{extrasTotal}₺</div>
+            <div><span className="font-semibold">Genel Toplam: </span>{computedTotal}₺</div>
+          </div>
+        </div>
+
+        {/* Ödeme yöntemi (cash/card/transfer) */}
+        <div className="mt-6">
+          <label className="mb-2 block text-sm font-semibold">Ödeme Yöntemi</label>
+          <select value={payMethod} onChange={(e) => setPayMethod(e.target.value as any)} className="w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 outline-none ring-2 ring-transparent transition focus:bg-white focus:ring-sky-200">
+            <option value="">Seçiniz</option>
+            <option value="cash">Nakit (cash)</option>
+            <option value="card">Kart (card)</option>
+            <option value="transfer">Havale/EFT (transfer)</option>
+          </select>
+        </div>
+
+        {/* Resim ekle (ID servisi yok -> boş dizi) */}
+        <div className="mt-6">
+          <label className="mb-2 block text-sm font-semibold">Resim Ekle</label>
+          <input type="file" accept="image/*" multiple onChange={(e) => {
+            const list = e.target.files ? Array.from(e.target.files) : [];
+            if (list.length) setFiles(p => [...p, ...list]);
+          }} />
+          {files.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {files.map((f, i) => (
+                <div key={i} className="rounded-md border border-neutral-200 bg-white px-2 py-1 text-xs shadow-sm">{f.name}</div>
+              ))}
+            </div>
+          )}
         </div>
       </section>
 
-      <div className="flex items-center justify-end gap-3">
-        <button
-          type="submit"
-          disabled={saving}
-          className="rounded-2xl bg-indigo-600 px-5 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
-        >
-          {saving ? 'Gönderiliyor…' : 'Kaydet'}
+      <div className="flex items-center justify-end">
+        <button type="submit" disabled={busy} className="rounded-2xl bg-indigo-500 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-600 disabled:opacity-60">
+          {busy ? 'Gönderiliyor…' : 'Kaydet'}
         </button>
-        {ok && <div className="text-sm text-emerald-600">{ok}</div>}
-        {err && <div className="text-sm text-rose-600">{err}</div>}
       </div>
     </form>
   );

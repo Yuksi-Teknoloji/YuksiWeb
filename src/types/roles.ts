@@ -1,5 +1,5 @@
 // src/types/roles.ts
-export const ROLES = ["admin", "bayi", "restaurant", "corporate", "marketing"] as const;
+export const ROLES = ["admin", "dealer", "restaurant", "corporate", "marketing"] as const;
 export type Role = typeof ROLES[number];
 
 export type NavItem = { label: string; href: string };

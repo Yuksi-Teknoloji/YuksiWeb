@@ -97,13 +97,21 @@ export const NAV: Record<Role, RawNavGroup[]> = {
   },
 ],
 
-  bayi: [
+  dealer: [
     {
-      title: "Siparişler",
+      title: "Bayi",
       items: [
-        { label: "Ana",        path: "bayi" },
-        { label: "Siparişler", path: "bayi/orders" },
-        { label: "Faturalar",  path: "bayi/invoices" },
+        { label: "Ana",        path: "dealers" },
+        { label: "Siparişler", path: "dealers/transportations" },
+        { label: "Lojistik Takip",  path: "dealers/logistics-tracking" },
+        { label: "Canlı Takip",  path: "dealers/follow-live" },
+        { label: "Taşıyıcı Takip",  path: "dealers/carrier-list" },
+        { label: "Yük Oluştur",  path: "dealers/create-load" },
+        { label: "Haritalar",  path: "dealers/maps" },
+        { label: "İşletme Oluştur",        path: "dealers/create-management" },
+        { label: "Restoran Listesi",        path: "dealers/restaurant-list" },
+        { label: "Fatura ve Ödemeler",        path: "dealers/invoices" },
+        { label: "Şirket Listesi",        path: "dealers/company-list" },
       ],
     },
   ],
@@ -134,6 +142,7 @@ export const NAV: Record<Role, RawNavGroup[]> = {
         { label: "Kurye Puanlamaları",                  path: "restaurants/courier/courier-ratings" },
         { label: "Kurye Ekle",                  path: "restaurants/courier/add-courier" },
         { label: "Kurye Listesi",                  path: "restaurants/courier/list-courier" },
+        { label: "Sipariş Oluştur",                  path: "restaurants/create-order" },
         { label: "Sipariş Geçmişi",                  path: "restaurants/order-history" },
         { label: "Destek",                  path: "restaurants/supports" },
         { label: "Fatura ve Ödemeler",  path: "restaurants/invoices" },
