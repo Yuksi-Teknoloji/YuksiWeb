@@ -4,29 +4,24 @@
 import * as React from "react";
 import { Trash2 } from "lucide-react";
 import "@/styles/admin-settings.css";
-import { API_BASE } from '@/configs/api';
 import { getAuthToken } from '@/utils/auth'; // ✅ auth token buradan
 
+
 type BannerApiItem = {
-  id?: number | string;
-  guid?: string;
-  title?: string;
-  link?: string;
-  description?: string;
-  images?: string[];
-  isActive?: boolean;
-  isDeleted?: boolean;
+  id: string;            // Swagger: string (GUID veya benzeri)
+  title: string;
+  image_url: string;
+  priority: number;
+  active: boolean;
 };
 
 type BannerCard = {
-  id: string;
-  numericId?: number | null;
-  guid?: string | null;
+  id: string;            // API'den gelen id (string)
   title: string;
-  link: string;
-  description: string;
-  image: string;
-  isActive: boolean;
+  imageUrl: string;
+  priority: number;
+  active: boolean;
+  // UI state
   _dirty?: boolean;
   _file?: File | null;
 };
@@ -42,7 +37,7 @@ type GeneralSettingsDto = {
   logoPath: string;
 };
 
-// ---- helpers
+// ─── helpers ─────────────────────────────────────────────────────────────
 async function readProblem(res: Response) {
   const txt = await res.text();
   try { return txt ? JSON.parse(txt) : null; } catch { return txt; }
@@ -70,18 +65,22 @@ function toDisplaySrc(raw?: string): string {
     return `data:${mime};base64,${s}`;
   }
   const path = s.replace(/^\/+/, "");
-  return `${API_BASE}/${path}`;
+  return `/yuksi/${path}`;
 }
-async function fileToBase64Raw(file: File): Promise<string> {
+async function fileToBase64DataUrl(file: File): Promise<string> {
   const buf = await file.arrayBuffer();
   let bin = "";
   const bytes = new Uint8Array(buf);
   for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
-  return btoa(bin);
+  const raw = btoa(bin);
+  const mime =
+    file.type && /^image\//.test(file.type) ? file.type :
+    guessMimeFromBase64(raw);
+  return `data:${mime};base64,${raw}`;
 }
 
 export default function SettingsPage() {
-  // ---- GeneralSettings (SOL PANEL)
+  // ─── GeneralSettings (SOL PANEL) ───────────────────────────────────────
   const [generalId, setGeneralId] = React.useState<string | null>(null); // ✅ GET ile gelen id'yi tut
   const [appName, setAppName] = React.useState("");
   const [appTitle, setAppTitle] = React.useState("");
@@ -94,16 +93,17 @@ export default function SettingsPage() {
   const [logoPath, setLogoPath] = React.useState("");
   const [logoFile, setLogoFile] = React.useState<File | null>(null);
 
-  // ---- Diğer (demo)
+  // ─── Diğer (demo) ──────────────────────────────────────────────────────
   const [commission, setCommission] = React.useState("30");
 
-  // ---- Banner form
+  // ─── Banner form (YENİ ŞEMA) ───────────────────────────────────────────
   const [bannerTitle, setBannerTitle] = React.useState("");
-  const [bannerLink, setBannerLink] = React.useState("");
-  const [bannerDesc, setBannerDesc] = React.useState("");
+  const [bannerImageUrl, setBannerImageUrl] = React.useState("");
+  const [bannerPriority, setBannerPriority] = React.useState<number | ''>(0);
+  const [bannerActive, setBannerActive] = React.useState(true);
   const [bannerFile, setBannerFile] = React.useState<File | null>(null);
 
-  // ---- List & state
+  // ─── List & state ──────────────────────────────────────────────────────
   const [banners, setBanners] = React.useState<BannerCard[]>([]);
   const [loadingList, setLoadingList] = React.useState(false);
   const [loadingGeneral, setLoadingGeneral] = React.useState(false);
@@ -112,7 +112,7 @@ export default function SettingsPage() {
   const [error, setError] = React.useState<string | null>(null);
   const [okMsg, setOkMsg] = React.useState<string | null>(null);
 
-  // ---- auth headers
+  // ─── auth headers ──────────────────────────────────────────────────────
   const [token, setToken] = React.useState<string | null>(null);
   React.useEffect(() => { setToken(getAuthToken()); }, []);
   const authHeaders = React.useMemo<HeadersInit>(() => {
@@ -121,7 +121,7 @@ export default function SettingsPage() {
     return h;
   }, [token]);
 
-  // ---------- GeneralSettings: GET  (✅ /api/GeneralSetting/get)
+  // ─── GeneralSettings: GET  (✅ /api/GeneralSetting/get) ────────────────
   const loadGeneral = React.useCallback(async () => {
     setLoadingGeneral(true);
     setError(null);
@@ -136,7 +136,6 @@ export default function SettingsPage() {
       }
       const data = await res.json().catch(() => ({}));
       const d = (data?.data ?? data) || {};
-      // swagger alan adları → form state
       setGeneralId(d.id ? String(d.id) : null);
       setAppName(d.app_name ?? "");
       setAppTitle(d.app_title ?? "");
@@ -153,22 +152,12 @@ export default function SettingsPage() {
     }
   }, [authHeaders]);
 
-  function toNumericId(b: BannerCard | undefined, idOrStr: string | number) {
-    if (!b) return null;
-    if (typeof b.numericId === "number") return b.numericId;
-    const n = Number.parseInt(String(b.id), 10);
-    return Number.isFinite(n) ? n : null;
-  }
-
-  // ---------- GeneralSettings: CREATE / UPDATE
-  //  • id yoksa -> POST /api/GeneralSetting/create
-  //  • id varsa -> PATCH /api/GeneralSetting/update
+  // ─── GeneralSettings: CREATE / UPDATE ──────────────────────────────────
   async function saveGeneral() {
     setSavingGeneral(true);
     setError(null);
     setOkMsg(null);
 
-    // swagger’daki alan adlarıyla birebir payload (snake_case)
     const payload: any = {
       app_name: (appName || "").trim(),
       app_title: (appTitle || "").trim(),
@@ -209,7 +198,7 @@ export default function SettingsPage() {
       }
 
       setOkMsg(isUpdate ? "Genel ayarlar güncellendi." : "Genel ayarlar oluşturuldu.");
-      await loadGeneral(); // ekranda güncel değerleri göster
+      await loadGeneral();
     } catch (e: any) {
       setError(e?.message || "Genel ayarlar kaydedilemedi.");
     } finally {
@@ -217,33 +206,26 @@ export default function SettingsPage() {
     }
   }
 
-  // ---------- Banner list (değişmedi)
+  // ─── Banner list (YENİ)  GET /yuksi/Banner/get-banners ────────────────
   const loadBanners = React.useCallback(async () => {
     setLoadingList(true);
     setError(null);
     try {
-      const res = await fetch(`${API_BASE}/api/Banner/get-banners`, { cache: "no-store" });
+      const res = await fetch(`/yuksi/Banner/get-banners`, { cache: "no-store" });
+      if (!res.ok) {
+        const prob = await readProblem(res);
+        throw new Error(typeof prob === "string" ? prob : (prob?.title || prob?.message || `HTTP ${res.status}`));
+      }
       const data = await res.json().catch(() => ({} as any));
       const arr = (Array.isArray(data?.data) ? data.data : Array.isArray(data) ? data : []) as BannerApiItem[];
 
-      const mapped: BannerCard[] = arr
-        .filter(x => x && x.isActive === true && x.isDeleted === false)
-        .map(x => {
-          const rawId = x.id;
-          const numericId =
-            typeof rawId === "number" ? rawId :
-              (typeof rawId === "string" && /^\d+$/.test(rawId) ? Number(rawId) : null);
-          return {
-            id: String(x.guid ?? rawId ?? crypto.randomUUID()),
-            numericId,
-            guid: x.guid ?? null,
-            title: x.title ?? "",
-            link: x.link ?? "",
-            description: x.description ?? "",
-            image: toDisplaySrc(x.images?.[0]),
-            isActive: true,
-          };
-        });
+      const mapped: BannerCard[] = arr.map(x => ({
+        id: String(x.id),
+        title: x.title ?? "",
+        imageUrl: x.image_url ?? "",
+        priority: Number.isFinite(x.priority as any) ? Number(x.priority) : 0,
+        active: Boolean(x.active),
+      }));
 
       setBanners(mapped);
     } catch (e: any) {
@@ -267,40 +249,29 @@ export default function SettingsPage() {
     alert(`Komisyon güncellendi: %${commission}`);
   }
 
-  // ---------- Banner add/update/delete (değişmedi)
+  // ─── Banner add: POST /yuksi/Banner/set-banner ────────────────────────
   async function addBanner() {
     setSaving(true); setError(null); setOkMsg(null);
     try {
-      const maybeUrl = [bannerLink, bannerDesc].find(
-        (x) => typeof x === "string" && /^https?:\/\//i.test(x.trim())
-      );
-
-      let images: string[] = [];
-      let imageFileNames: string[] | undefined;
-
-      if (bannerFile) {
-        const b64 = await fileToBase64Raw(bannerFile);
-        images = [b64];
-        imageFileNames = [bannerFile.name];
-      } else if (maybeUrl) {
-        images = [maybeUrl.trim()];
-      } else {
+      // image_url: dosya seçilmişse base64 data URL; yoksa yazılan URL
+      let image_url = (bannerImageUrl || "").trim();
+      if (!image_url && bannerFile) {
+        image_url = await fileToBase64DataUrl(bannerFile);
+      }
+      if (!bannerTitle.trim() || !image_url) {
         setSaving(false);
-        setError("Lütfen bir görsel dosyası seçin ya da bir görsel URL'si girin.");
+        setError("Başlık ve görsel zorunludur.");
         return;
       }
 
       const payload = {
-        title: bannerTitle || "",
-        link: bannerLink || "",
-        description: bannerDesc || "",
-        images,
-        ...(imageFileNames ? { imageFileNames } : {}),
-        isActive: true,
-        isDeleted: false,
+        title: bannerTitle.trim(),
+        image_url,
+        priority: bannerPriority === '' ? 0 : Number(bannerPriority),
+        active: Boolean(bannerActive),
       };
 
-      const res = await fetch(`${API_BASE}/api/Banner/set-banner`, {
+      const res = await fetch(`/yuksi/Banner/set-banner`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -310,33 +281,31 @@ export default function SettingsPage() {
         throw new Error(typeof prob === "string" ? prob : (prob?.title || prob?.message || `HTTP ${res.status}`));
       }
       setOkMsg("Banner eklendi.");
-      setBannerTitle(""); setBannerLink(""); setBannerDesc(""); setBannerFile(null);
+      setBannerTitle(""); setBannerImageUrl(""); setBannerPriority(0); setBannerActive(true); setBannerFile(null);
       await loadBanners();
     } catch (e: any) {
       setError(e?.message || "Banner kaydedilemedi.");
     } finally { setSaving(false); }
   }
 
+  // ─── Banner update: PATCH /yuksi/Banner/update-banner ─────────────────
   async function updateBanner(b: BannerCard) {
     setSaving(true); setError(null); setOkMsg(null);
     try {
-      const body: any = {
-        id: b.numericId ?? undefined,
-        guid: b.guid ?? undefined,
-        title: b.title ?? "",
-        link: b.link ?? "",
-        description: b.description ?? "",
-      };
-
+      let image_url = (b.imageUrl || "").trim();
       if (b._file) {
-        const raw = await fileToBase64Raw(b._file);
-        body.images = [raw];
-        body.imageFileNames = [b._file.name];
-      } else if (b.image) {
-        body.images = [b.image];
+        image_url = await fileToBase64DataUrl(b._file);
       }
 
-      const res = await fetch(`${API_BASE}/api/Banner/update-banner`, {
+      const body = {
+        id: b.id,                       // string
+        title: b.title ?? "",
+        image_url,
+        priority: Number.isFinite(b.priority as any) ? Number(b.priority) : 0,
+        active: Boolean(b.active),
+      };
+
+      const res = await fetch(`/yuksi/Banner/update-banner`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -352,17 +321,11 @@ export default function SettingsPage() {
     } finally { setSaving(false); }
   }
 
-  async function removeBanner(idOrStr: string | number) {
+  // ─── Banner delete: DELETE /yuksi/Banner/delete-banner/{banner_id} ────
+  async function removeBanner(idOrStr: string) {
     setSaving(true); setError(null); setOkMsg(null);
     try {
-      const b = banners.find(x => String(x.id) === String(idOrStr));
-      const bannerId = toNumericId(b, idOrStr);
-
-      if (bannerId == null) {
-        throw new Error("Bu banner için sayısal BannerId bulunamadı.");
-      }
-
-      const res = await fetch(`${API_BASE}/api/Banner/delete-banner/${bannerId}`, {
+      const res = await fetch(`/yuksi/Banner/delete-banner/${encodeURIComponent(String(idOrStr))}`, {
         method: "DELETE",
       });
 
@@ -372,7 +335,7 @@ export default function SettingsPage() {
         throw new Error(`Silinemedi: ${msg}`);
       }
 
-      setBanners(prev => prev.filter(x => toNumericId(x, x.id) !== bannerId));
+      setBanners(prev => prev.filter(x => String(x.id) !== String(idOrStr)));
       setOkMsg("Banner silindi.");
     } catch (e: any) {
       setError(e?.message || "Banner silinemedi.");
@@ -405,7 +368,7 @@ export default function SettingsPage() {
           </div>
         </section>
 
-        {/* Yeni Banner Ekle */}
+        {/* Yeni Banner Ekle (YENİ ŞEMA) */}
         <section className="card">
           <div className="form">
             <div className="row">
@@ -414,25 +377,47 @@ export default function SettingsPage() {
                 <input className="field" value={bannerTitle} onChange={(e) => setBannerTitle(e.target.value)} placeholder="Banner başlığı" />
               </div>
               <div className="col">
-                <label className="label">Link</label>
-                <input className="field" value={bannerLink} onChange={(e) => setBannerLink(e.target.value)} placeholder="https://…" />
+                <label className="label">Öncelik (priority)</label>
+                <input
+                  className="field"
+                  type="number"
+                  value={bannerPriority as any}
+                  onChange={(e) => setBannerPriority(e.target.value === '' ? '' : Number(e.target.value))}
+                />
               </div>
             </div>
+
             <div className="row">
               <div className="col">
-                <label className="label">Açıklama</label>
-                <textarea className="field" rows={3} value={bannerDesc} onChange={(e) => setBannerDesc(e.target.value)} />
+                <label className="label">Görsel URL (image_url)</label>
+                <input
+                  className="field"
+                  value={bannerImageUrl}
+                  onChange={(e) => setBannerImageUrl(e.target.value)}
+                  placeholder="https://… veya data:image/png;base64,…"
+                />
+              </div>
+              <div className="col align-end">
+                <label className="label">Aktif mi?</label>
+                <div className="row">
+                  <input type="checkbox" checked={bannerActive} onChange={(e) => setBannerActive(e.target.checked)} />
+                  <span className="ml-2">Active</span>
+                </div>
               </div>
             </div>
+
             <div className="row row--with-action">
               <div className="filepicker">
-                <label className="label">Resim yükle</label>
+                <label className="label">İstersen Dosyadan Görsel Seç</label>
                 <div className="filepicker__grid">
                   <input readOnly className="field" value={bannerFile?.name ?? "Seçilen dosya yok"} />
                   <label className="btn btn--light filepicker__btn">
                     Dosya Seç
                     <input type="file" accept="image/*" className="hidden-input" onChange={(e) => setBannerFile(e.target.files?.[0] ?? null)} />
                   </label>
+                </div>
+                <div className="muted" style={{marginTop: 6}}>
+                  Dosya seçerseniz, <code>image_url</code> alanı otomatik olarak base64 data URL’e çevrilir.
                 </div>
               </div>
               <div className="align-end">
@@ -449,7 +434,7 @@ export default function SettingsPage() {
 
       {/* Orta bölüm – sol form + sağ liste */}
       <div className="grid grid--main">
-        {/* Sol – GENERAL SETTINGS (✅ bağlandı) */}
+        {/* Sol – GENERAL SETTINGS (dokunulmadı) */}
         <section className="card">
           <div className="form">
             {loadingGeneral && <div className="muted">Genel ayarlar yükleniyor…</div>}
@@ -520,7 +505,7 @@ export default function SettingsPage() {
           </div>
         </section>
 
-        {/* Sağ – Banner listesi (dokunulmadı) */}
+        {/* Sağ – Banner listesi (YENİ ŞEMA) */}
         <aside className="card card--list">
           {loadingList ? (
             <div className="muted">Yükleniyor…</div>
@@ -538,20 +523,54 @@ export default function SettingsPage() {
                     <Trash2 className="icon" />
                   </button>
 
-                  {b.image ? (
+                  {b.imageUrl ? (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={b.image} alt="banner" className="banner__img" loading="lazy" />
+                    <img src={toDisplaySrc(b.imageUrl)} alt="banner" className="banner__img" loading="lazy" />
                   ) : (
                     <div className="banner__img banner__img--empty">Görsel yok</div>
                   )}
 
                   <div className="banner__form">
-                    <input className="field" value={b.title} onChange={(e) => markDirty(b.id, { title: e.target.value })} placeholder="Başlık" />
-                    <input className="field" value={b.link} onChange={(e) => markDirty(b.id, { link: e.target.value })} placeholder="https://…" />
-                    <textarea className="field" rows={2} value={b.description} onChange={(e) => markDirty(b.id, { description: e.target.value })} placeholder="Açıklama" />
+                    <input
+                      className="field"
+                      value={b.title}
+                      onChange={(e) => markDirty(b.id, { title: e.target.value })}
+                      placeholder="Başlık"
+                    />
+
+                    <input
+                      className="field"
+                      value={b.imageUrl}
+                      onChange={(e) => markDirty(b.id, { imageUrl: e.target.value })}
+                      placeholder="image_url (https://… veya data:…)"
+                    />
+
+                    <div className="row">
+                      <div className="col">
+                        <label className="label">Öncelik</label>
+                        <input
+                          className="field"
+                          type="number"
+                          value={b.priority}
+                          onChange={(e) => markDirty(b.id, { priority: Number(e.target.value) })}
+                        />
+                      </div>
+                      <div className="col align-end">
+                        <label className="label">Aktif mi?</label>
+                        <div className="row">
+                          <input
+                            type="checkbox"
+                            checked={b.active}
+                            onChange={(e) => markDirty(b.id, { active: e.target.checked })}
+                          />
+                          <span className="ml-2">Active</span>
+                        </div>
+                      </div>
+                    </div>
+
                     <div className="row">
                       <div className="filepicker__grid">
-                        <input readOnly className="field" value={b._file?.name ?? "Yeni görsel seç (opsiyonel)"} />
+                        <input readOnly className="field" value={b._file?.name ?? "Dosyadan güncelle (opsiyonel)"} />
                         <label className="btn btn--light filepicker__btn">
                           Dosya Seç
                           <input
