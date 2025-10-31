@@ -64,6 +64,7 @@ type CourierItem = {
   phone?: string | null;
   vehicle_type?: string | number | null;
   is_active?: boolean | null;
+  is_online?: boolean | null; // <-- eklendi
 };
 
 type RestaurantCourierRow = {
@@ -137,8 +138,10 @@ export default function AddOrderCourierPage() {
           phone: c?.phone ?? null,
           vehicle_type: c?.vehicle_type ?? null,
           is_active: typeof c?.is_active === 'boolean' ? c.is_active : null,
+          is_online: typeof c?.is_online === 'boolean' ? c.is_online : null, // <-- eklendi
         }))
-        .filter((c: CourierItem) => c.id && c.is_active === true); // sadece aktif
+        // sadece aktif **ve** online olanlar
+        .filter((c: CourierItem) => c.id && c.is_active === true && c.is_online === true);
       setActiveCouriers(mapped);
     } catch (e: any) {
       setActiveCouriers([]); setActiveCouriersError(e?.message || 'Aktif kuryeler alınamadı.');
@@ -155,7 +158,6 @@ export default function AddOrderCourierPage() {
       const res = await fetch(`/yuksi/Restaurant/${restaurantId}/couriers`, { cache: 'no-store', headers });
       const j: any = await readJson(res);
       if (!res.ok || j?.success === false) throw new Error(pickMsg(j, `HTTP ${res.status}`));
-      // JSON örneğine göre: data.couriers[]
       const list = Array.isArray(j?.data?.couriers) ? j.data.couriers : (Array.isArray(j?.couriers) ? j.couriers : []);
       const mapped: RestaurantCourierRow[] = list.map((x: any) => ({
         assignment_id: String(x?.id ?? ''),
@@ -204,7 +206,6 @@ export default function AddOrderCourierPage() {
       })).filter((o: OrderItem) => o.id);
 
       setOrders(mapped);
-      // Seçilmemişse ilk uygun siparişi seç
       setSelectedOrderId((prev: string) => prev || (mapped[0]?.id ?? ''));
     } catch (e: any) {
       setOrders([]); setOrdersError(e?.message || 'Siparişler alınamadı.');

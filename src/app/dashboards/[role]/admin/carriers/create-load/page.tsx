@@ -4,12 +4,11 @@ import * as React from 'react';
 import { getAuthToken } from '@/utils/auth';
 import dynamic from 'next/dynamic';
 
-
 const MapPicker = dynamic(() => import('@/components/map/MapPicker'), { ssr: false });
 
 /* ======= types & helpers ======= */
 type DeliveryTypeUI = 'today' | 'appointment';
-type DeliveryTypeAPI = 'immediate' | 'appointment';
+type DeliveryTypeAPI = 'immediate' | 'scheduled';
 
 type ExtraServiceKey = 'fragile' | 'helpCarry' | 'returnTrip' | 'stairs' | 'insurance';
 
@@ -30,7 +29,7 @@ async function readJson<T = any>(res: Response): Promise<T> {
 }
 const pickMsg = (d: any, fb: string) => d?.error?.message || d?.message || d?.detail || d?.title || fb;
 
-// API errorları için güçlü toplayıcı (array object, array string, map vs.)
+// API hata toplayıcı
 function collectErrors(x: any): string {
   const msgs: string[] = [];
   if (x?.message) msgs.push(String(x.message));
@@ -56,10 +55,23 @@ function collectErrors(x: any): string {
   return msgs.join('\n');
 }
 
+// HTML date (YYYY-MM-DD) -> "DD.MM.YYYY"
+function toTRDate(d: string) {
+  if (!d) return '';
+  const [y, m, day] = d.split('-');
+  return `${day}.${m}.${y}`;
+}
+// HTML time pass-through
+function toTRTime(t: string) {
+  return t || '';
+}
+
 /* ======= page ======= */
 export default function CreateLoadPage() {
   // UI state
   const [deliveryType, setDeliveryType] = React.useState<DeliveryTypeUI>('today');
+  const [schedDate, setSchedDate] = React.useState<string>(''); // randevulu ise zorunlu
+  const [schedTime, setSchedTime] = React.useState<string>('');
 
   const [carrierType, setCarrierType] = React.useState('courier');       // swagger örneği 'courier'
   const [carrierVehicle, setCarrierVehicle] = React.useState('motorcycle'); // 'motorcycle'
@@ -117,7 +129,12 @@ export default function CreateLoadPage() {
     if (!pickup || !dropoff) { setErrMsg('Adresleri girin.'); return; }
     if (!payMethod) { setErrMsg('Ödeme yöntemi seçin.'); return; }
 
-    const deliveryTypeApi: DeliveryTypeAPI = deliveryType === 'today' ? 'immediate' : 'appointment';
+    const deliveryTypeApi: DeliveryTypeAPI = deliveryType === 'today' ? 'immediate' : 'scheduled';
+
+    if (deliveryTypeApi === 'scheduled' && (!schedDate || !schedTime)) {
+      setErrMsg('Randevulu teslimatlar için tarih ve saat seçin.'); 
+      return;
+    }
 
     const extraServices = (Object.keys(extras) as ExtraServiceKey[])
       .filter(k => extras[k])
@@ -126,15 +143,18 @@ export default function CreateLoadPage() {
     const pLat = Number(pickupLat), pLng = Number(pickupLng);
     const dLat = Number(dropLat), dLng = Number(dropLng);
 
+    const deliveryDate = deliveryTypeApi === 'scheduled' ? (toTRDate(schedDate) || null) : null;
+    const deliveryTime = deliveryTypeApi === 'scheduled' ? (toTRTime(schedTime) || null) : null;
+
     // ---> loadType API'ye GÖNDERİLMİYOR <---
     const body = {
       deliveryType: deliveryTypeApi,
       carrierType,
       vehicleType: carrierVehicle,
       pickupAddress: pickup,
-      pickupCoordinates: (Number.isFinite(pLat) && Number.isFinite(pLng)) ? [pLat, pLng] : undefined,
+      pickupCoordinates: (Number.isFinite(pLat) && Number.isFinite(pLng)) ? [pLat, pLng] as [number, number] : undefined,
       dropoffAddress: dropoff,
-      dropoffCoordinates: (Number.isFinite(dLat) && Number.isFinite(dLng)) ? [dLat, dLng] : undefined,
+      dropoffCoordinates: (Number.isFinite(dLat) && Number.isFinite(dLng)) ? [dLat, dLng] as [number, number] : undefined,
       specialNotes: note || undefined,
       campaignCode: couponApplied || (coupon.trim() || undefined),
       extraServices,
@@ -142,6 +162,10 @@ export default function CreateLoadPage() {
       totalPrice: computedTotal,
       paymentMethod: payMethod, // 'cash' | 'card' | 'transfer'
       imageFileIds: [],
+
+      // randevu alanları (immediate ise null)
+      deliveryDate,
+      deliveryTime,
     };
 
     setBusy(true);
@@ -166,6 +190,7 @@ export default function CreateLoadPage() {
       setNote(''); setCoupon(''); setCouponApplied(null);
       setExtras({ fragile: false, helpCarry: false, returnTrip: false, stairs: false, insurance: false });
       setBasePrice(''); setPayMethod(''); setFiles([]);
+      setSchedDate(''); setSchedTime(''); setDeliveryType('today');
     } catch (e: any) {
       setErrMsg(e?.message || 'Gönderi oluşturulamadı.');
     } finally {
@@ -208,9 +233,32 @@ export default function CreateLoadPage() {
                 : 'bg-white text-neutral-800 border-neutral-300 hover:bg-neutral-50',
             ].join(' ')}
           >
-            Randevulu (appointment)
+            Randevulu (scheduled)
           </button>
         </div>
+
+        {deliveryType === 'appointment' && (
+          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className="mb-2 block text-sm font-semibold">Teslim Tarihi</label>
+              <input
+                type="date"
+                value={schedDate}
+                onChange={(e) => setSchedDate(e.target.value)}
+                className="w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 outline-none ring-2 ring-transparent transition focus:bg-white focus:ring-sky-200"
+              />
+            </div>
+            <div>
+              <label className="mb-2 block text-sm font-semibold">Teslim Saati</label>
+              <input
+                type="time"
+                value={schedTime}
+                onChange={(e) => setSchedTime(e.target.value)}
+                className="w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 outline-none ring-2 ring-transparent transition focus:bg-white focus:ring-sky-200"
+              />
+            </div>
+          </div>
+        )}
       </section>
 
       {/* Üst alanlar */}
@@ -246,23 +294,6 @@ export default function CreateLoadPage() {
             </select>
           </div>
         </div>
-
-        {/* Yük tipi (API'ye gönderilmiyor) */}
-        {/* <div className="mt-5">
-          <label className="mb-2 block text-sm font-semibold">Yük Tipi (sadece not/etiket; API'ye gönderilmiyor)</label>
-          <select
-            value={loadType}
-            onChange={(e) => setLoadType(e.target.value)}
-            className="w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 outline-none ring-2 ring-transparent transition focus:bg-white focus:ring-sky-200"
-          >
-            <option value="">Seçiniz</option>
-            <option value="smallPackage">Küçük Paket</option>
-            <option value="document">Evrak</option>
-            <option value="furniture">Mobilya</option>
-            <option value="appliance">Beyaz Eşya</option>
-            <option value="fragile">Hassas / Kırılabilir</option>
-          </select>
-        </div> */}
 
         {/* === GÖNDERİCİ (PICKUP) === */}
         <MapPicker
@@ -351,11 +382,8 @@ export default function CreateLoadPage() {
 
         {/* Resim ekle (ID servisi yok -> boş dizi) */}
         <div className="mt-6">
-          <label className="mb-2 block text-sm font-semibold">Resim Ekle</label>
-          <input type="file" accept="image/*" multiple onChange={(e) => {
-            const list = e.target.files ? Array.from(e.target.files) : [];
-            if (list.length) setFiles(p => [...p, ...list]);
-          }} />
+          <label className="mb-2 block text.sm font-semibold">Resim Ekle</label>
+          <input type="file" accept="image/*" multiple onChange={onUploadChange} />
           {files.length > 0 && (
             <div className="mt-3 flex flex-wrap gap-2">
               {files.map((f, i) => (

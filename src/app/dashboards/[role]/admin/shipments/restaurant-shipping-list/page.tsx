@@ -1,4 +1,4 @@
-//src/app/dashboards/[role]/admin/shipments/shipping-list/page.tsx
+// src/app/dashboards/[role]/admin/shipments/restaurant-shipping-list/page.tsx
 'use client';
 
 import * as React from 'react';
@@ -29,12 +29,11 @@ function fmtDate(iso?: string | null) {
 }
 function badgeColor(kind?: string) {
   if (kind === 'immediate') return 'bg-indigo-50 text-indigo-700 ring-indigo-100';
-  if (kind === 'appointment') return 'bg-amber-50 text-amber-700 ring-amber-100';
-  if (kind === 'scheduled') return 'bg-amber-50 text-amber-700 ring-amber-100';
+  if (kind === 'appointment' || kind === 'scheduled') return 'bg-amber-50 text-amber-700 ring-amber-100';
   return 'bg-neutral-100 text-neutral-700 ring-neutral-200';
 }
 
-// API tarih formatı genelde "DD.MM.YYYY" geliyor; HTML input=date için "YYYY-MM-DD" gerek.
+// API tarih "DD.MM.YYYY" → input=date "YYYY-MM-DD"
 function trToHtmlDate(tr?: string | null) {
   if (!tr) return '';
   const parts = tr.split('.');
@@ -55,13 +54,15 @@ function fmtAppt(date?: string | null, time?: string | null) {
 }
 
 /* ========= API types ========= */
-type ApiJob = {
+type ApiRestaurantJob = {
   id: string;
   deliveryType: 'immediate' | 'appointment' | 'scheduled' | string;
   carrierType?: string | null;
   vehicleType?: string | null;
   pickupAddress?: string | null;
+  pickupCoordinates?: [number, number] | null;
   dropoffAddress?: string | null;
+  dropoffCoordinates?: [number, number] | null;
   specialNotes?: string | null;
   totalPrice?: number | null;
   paymentMethod?: 'cash' | 'card' | 'transfer' | string | null;
@@ -69,28 +70,33 @@ type ApiJob = {
 
   deliveryDate?: string | null;   // "DD.MM.YYYY" veya null
   deliveryTime?: string | null;   // "HH:mm" veya null
+
+  restaurantId?: string | null;
+  restaurantName?: string | null;
+  restaurantEmail?: string | null;
 };
-type ListResponse = { success?: boolean; message?: string; data?: ApiJob[] };
+type ListResponse = { success?: boolean; message?: string; data?: ApiRestaurantJob[] };
 
 /* ========= page ========= */
-export default function ShippingListPage() {
+export default function AdminRestaurantShippingListPage() {
   const token = React.useMemo(getAuthToken, []);
   const headers = React.useMemo<HeadersInit>(() => bearerHeaders(token), [token]);
 
   // filters / paging
   const [limit, setLimit] = React.useState<number | ''>('');
   const [offset, setOffset] = React.useState<number>(0);
-  const [deliveryType, setDeliveryType] = React.useState<'' | 'immediate' | 'appointment'>('');
+  const [deliveryType, setDeliveryType] = React.useState<'' | 'immediate' | 'appointment' | 'scheduled'>('');
+  const [restaurantId, setRestaurantId] = React.useState<string>('');
   const [q, setQ] = React.useState('');
 
   // data
-  const [rows, setRows] = React.useState<ApiJob[]>([]);
+  const [rows, setRows] = React.useState<ApiRestaurantJob[]>([]);
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
   // UI
-  const [selected, setSelected] = React.useState<ApiJob | null>(null);
-  const [editing, setEditing] = React.useState<ApiJob | null>(null);
+  const [selected, setSelected] = React.useState<ApiRestaurantJob | null>(null);
+  const [editing, setEditing] = React.useState<ApiRestaurantJob | null>(null);
   const [info, setInfo] = React.useState<string | null>(null);
 
   function toast(s: string) { setInfo(s); setTimeout(() => setInfo(null), 2500); }
@@ -98,24 +104,26 @@ export default function ShippingListPage() {
   const load = React.useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      const url = new URL('/yuksi/admin/jobs', location.origin);
+      // Rewrite kuralı: /yuksi/:path* → backend
+      const url = new URL('/yuksi/admin/jobs/restaurants', location.origin);
       if (limit !== '') url.searchParams.set('limit', String(limit));
       url.searchParams.set('offset', String(offset));
       if (deliveryType) url.searchParams.set('deliveryType', deliveryType);
+      if (restaurantId.trim()) url.searchParams.set('restaurantId', restaurantId.trim());
       const res = await fetch(url.toString(), { headers, cache: 'no-store' });
       const j = await readJson<ListResponse>(res);
       if (!res.ok || (j && (j as any).success === false)) {
         throw new Error(pickMsg(j, `HTTP ${res.status}`));
       }
-      const list = Array.isArray(j?.data) ? j!.data! : Array.isArray(j) ? (j as any as ApiJob[]) : [];
+      const list = Array.isArray(j?.data) ? j!.data! : Array.isArray(j) ? (j as any as ApiRestaurantJob[]) : [];
       setRows(list);
     } catch (e: any) {
-      setError(e?.message || 'Yük listesi alınamadı.');
+      setError(e?.message || 'Restaurant yük listesi alınamadı.');
       setRows([]);
     } finally {
       setLoading(false);
     }
-  }, [headers, limit, offset, deliveryType]);
+  }, [headers, limit, offset, deliveryType, restaurantId]);
 
   React.useEffect(() => { load(); }, [load]);
 
@@ -124,6 +132,7 @@ export default function ShippingListPage() {
     if (!qq) return rows;
     return rows.filter(r =>
       [
+        r.id,
         r.pickupAddress || '',
         r.dropoffAddress || '',
         r.specialNotes || '',
@@ -131,6 +140,8 @@ export default function ShippingListPage() {
         r.deliveryType || '',
         r.deliveryDate || '',
         r.deliveryTime || '',
+        r.restaurantName || '',
+        r.restaurantEmail || '',
       ].join(' ').toLowerCase().includes(qq)
     );
   }, [rows, q]);
@@ -149,8 +160,7 @@ export default function ShippingListPage() {
     }
   }
 
-  async function onUpdate(id: string, payload: Partial<ApiJob>) {
-    // PUT bekliyor: create ile aynı alanlar; elimizdeki + düzenlenenlerle gönderiyoruz
+  async function onUpdate(id: string, payload: Partial<ApiRestaurantJob>) {
     const r = rows.find(x => x.id === id);
     if (!r) return;
 
@@ -168,7 +178,7 @@ export default function ShippingListPage() {
       paymentMethod: (payload.paymentMethod ?? r.paymentMethod ?? 'cash'),
       imageFileIds: [],
 
-      // yeni: randevu alanları (immediate ise null kalabilir)
+      // randevu alanları
       deliveryDate: payload.deliveryDate ?? (r.deliveryDate ?? null),
       deliveryTime: payload.deliveryTime ?? (r.deliveryTime ?? null),
     };
@@ -192,7 +202,7 @@ export default function ShippingListPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold tracking-tight">Yük Listesi</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Restaurant Yük Listesi (Admin)</h1>
         <div className="flex items-center gap-2">
           <label className="text-sm text-neutral-600">Limit</label>
           <input
@@ -220,7 +230,14 @@ export default function ShippingListPage() {
             <option value="">Tümü</option>
             <option value="immediate">immediate</option>
             <option value="appointment">appointment</option>
+            <option value="scheduled">scheduled</option>
           </select>
+          <input
+            value={restaurantId}
+            onChange={(e) => setRestaurantId(e.target.value)}
+            placeholder="Restaurant ID (opsiyonel)"
+            className="w-56 rounded-lg border border-neutral-300 bg-neutral-100 px-2 py-1.5 text-sm"
+          />
           <button
             onClick={load}
             className="rounded-xl bg-neutral-200 px-4 py-2 text-sm font-medium text-neutral-800 hover:bg-neutral-300"
@@ -236,7 +253,7 @@ export default function ShippingListPage() {
             <input
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder="Ara: adres, ödeme türü, not…"
+              placeholder="Ara: id, restoran adı/e-posta, adres, ödeme türü, not…"
               className="w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 text-neutral-800 outline-none ring-2 ring-transparent transition placeholder:text-neutral-400 focus:bg-white focus:ring-sky-200"
             />
           </div>
@@ -253,14 +270,15 @@ export default function ShippingListPage() {
                 <th className="px-4 py-3 font-medium">Randevu</th>
                 <th className="px-4 py-3 font-medium">Ödeme</th>
                 <th className="px-4 py-3 font-medium">Toplam</th>
+                <th className="px-4 py-3 font-medium">Restoran</th>
                 <th className="px-4 py-3 font-medium">Oluşturma</th>
-                <th className="px-4 py-3 font-medium w-[200px]"></th>
+                <th className="px-4 py-3 font-medium w-[220px]"></th>
               </tr>
             </thead>
             <tbody>
               {loading && (
                 <tr>
-                  <td colSpan={7} className="px-6 py-10 text-center text-sm text-neutral-500">
+                  <td colSpan={8} className="px-6 py-10 text-center text-sm text-neutral-500">
                     Yükleniyor…
                   </td>
                 </tr>
@@ -282,6 +300,10 @@ export default function ShippingListPage() {
                   <td className="px-4 py-3 text-sm">{fmtAppt(r.deliveryDate, r.deliveryTime)}</td>
                   <td className="px-4 py-3 text-sm">{r.paymentMethod || '-'}</td>
                   <td className="px-4 py-3 font-semibold">{fmtTRY(r.totalPrice)}</td>
+                  <td className="px-4 py-3">
+                    <div className="text-sm text-neutral-900">{r.restaurantName || '-'}</div>
+                    <div className="text-xs text-neutral-500">{r.restaurantEmail || '-'}</div>
+                  </td>
                   <td className="px-4 py-3 text-sm">{fmtDate(r.createdAt)}</td>
                   <td className="px-4 py-3">
                     <div className="flex items-center justify-end gap-2">
@@ -310,7 +332,7 @@ export default function ShippingListPage() {
 
               {!loading && filtered.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-6 py-12 text-center text-sm text-neutral-500">
+                  <td colSpan={8} className="px-6 py-12 text-center text-sm text-neutral-500">
                     Kayıt yok.
                   </td>
                 </tr>
@@ -341,7 +363,7 @@ export default function ShippingListPage() {
 }
 
 /* ======== Modals ======== */
-function DetailModal({ row, onClose }: { row: ApiJob; onClose: () => void }) {
+function DetailModal({ row, onClose }: { row: ApiRestaurantJob; onClose: () => void }) {
   return (
     <div className="fixed inset-0 z-50 grid place-items-start overflow-y-auto bg-black/50 p-4">
       <div className="mx-auto w-full max-w-3xl rounded-2xl bg-white shadow-xl">
@@ -356,6 +378,12 @@ function DetailModal({ row, onClose }: { row: ApiJob; onClose: () => void }) {
           <Field label="Ödeme" value={row.paymentMethod} />
           <Field label="Toplam Ücret" value={fmtTRY(row.totalPrice)} />
           <Field label="Oluşturma" value={fmtDate(row.createdAt)} />
+          <Field label="Restoran">
+            <div>
+              <div className="text-neutral-900">{row.restaurantName || '-'}</div>
+              <div className="text-neutral-500 text-sm">{row.restaurantEmail || '-'}</div>
+            </div>
+          </Field>
           <Field label="Alış Adresi" value={row.pickupAddress} />
           <Field label="Teslim Adresi" value={row.dropoffAddress} />
           <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-4">
@@ -379,9 +407,9 @@ function EditModal({
   onClose,
   onSubmit,
 }: {
-  row: ApiJob;
+  row: ApiRestaurantJob;
   onClose: () => void;
-  onSubmit: (payload: Partial<ApiJob>) => void;
+  onSubmit: (payload: Partial<ApiRestaurantJob>) => void;
 }) {
   const [pickup, setPickup] = React.useState(row.pickupAddress || '');
   const [dropoff, setDropoff] = React.useState(row.dropoffAddress || '');
@@ -389,7 +417,6 @@ function EditModal({
   const [payment, setPayment] = React.useState<'cash' | 'card' | 'transfer' | ''>((row.paymentMethod as any) || '');
   const [total, setTotal] = React.useState<number | ''>(row.totalPrice ?? '');
 
-  // yeni: randevu alanları
   const [dDate, setDDate] = React.useState<string>(trToHtmlDate(row.deliveryDate));
   const [dTime, setDTime] = React.useState<string>(row.deliveryTime || '');
 
@@ -401,8 +428,6 @@ function EditModal({
       specialNotes: notes,
       paymentMethod: payment || undefined,
       totalPrice: total === '' ? 0 : Number(total),
-
-      // immediate ise boş bırakılabilir; arka uç null kabul eder
       deliveryDate: dDate ? htmlToTrDate(dDate) : null,
       deliveryTime: dTime ? dTime : null,
     });
@@ -469,7 +494,7 @@ function EditModal({
             </div>
           </div>
 
-          {/* Randevu bilgileri (istenirse boş bırakılabilir) */}
+          {/* Randevu bilgileri */}
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
               <label className="mb-1 block text-sm font-medium text-neutral-700">Teslim Tarihi</label>
@@ -505,12 +530,12 @@ function EditModal({
   );
 }
 
-function Field({ label, value }: { label: string; value?: React.ReactNode }) {
+function Field({ label, value, children }: { label: string; value?: React.ReactNode; children?: React.ReactNode }) {
   return (
     <div>
       <div className="mb-1 text-sm font-medium text-neutral-600">{label}</div>
       <div className="rounded-lg border border-neutral-200 bg-white px-3 py-2 text-neutral-900">
-        {value ?? '-'}
+        {children ?? value ?? '-'}
       </div>
     </div>
   );

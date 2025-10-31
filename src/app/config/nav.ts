@@ -33,6 +33,7 @@ export const NAV: Record<Role, RawNavGroup[]> = {
     title: "Nakliyeler",
     items: [
       { label: "Lojistik Takip", path: "admin/shipments/shipping-list" },
+      { label: "Restoran Yük Takip", path: "admin/shipments/restaurant-shipping-list" },
     ],
   },
   {
@@ -138,7 +139,9 @@ export const NAV: Record<Role, RawNavGroup[]> = {
         { label: "Profil Yönetimi",                  path: "restaurants/profile" },
         { label: "Canlı Takip",                  path: "restaurants/follow-live" },
         { label: "Paket Satın Al",                  path: "restaurants/buy-package" },
+        { label: "Kalan Paketlerim",                  path: "restaurants/list-package" },
         { label: "Yük Oluştur",                  path: "restaurants/create-load" },
+        { label: "Yük Listesi",                  path: "restaurants/list-load" },
         { label: "Kurye Puanlamaları",                  path: "restaurants/courier/courier-ratings" },
         { label: "Kurye Ekle",                  path: "restaurants/courier/add-courier" },
         { label: "Siparişe Kurye Ata",                  path: "restaurants/courier/list-courier" },
