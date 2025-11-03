@@ -8,7 +8,7 @@ import { decodeJwt, isExpired, roleSegment, type JwtClaims } from "@/utils/jwt";
 const HOME_BY_ROLE: Record<string, string> = {
   admin: "/dashboards/admin/admin",
   restaurant: "/dashboards/restaurant/restaurants",
-  bayi: "/dashboards/bayi/bayi",
+  dealer: "/dashboards/dealer/dealers",
   corporate: "/dashboards/corporate/corporate",
   marketing: "/dashboards/marketing/marketing",
   carrier: "/dashboards/carrier/carrier",
@@ -28,8 +28,8 @@ const ROLE_ALIASES: Record<string, string> = {
   courier: "carrier",
   // ek olası aliaslar
   restaurants: "restaurant",
-  dealer: "bayi",
-  dealers: "bayi",
+  dealer: "dealer",
+  dealers: "dealer",
   driver: "carrier",
   kuryeci: "carrier",
 };

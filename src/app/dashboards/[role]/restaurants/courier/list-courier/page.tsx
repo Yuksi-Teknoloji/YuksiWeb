@@ -64,11 +64,19 @@ type CourierItem = {
   phone?: string | null;
   vehicle_type?: string | number | null;
   is_active?: boolean | null;
-  is_online?: boolean | null; // <-- eklendi
+  is_online?: boolean | null; // aktif + online filtre için
+};
+
+type NearbyCourierItem = {
+  id: string;
+  first_name?: string | null;
+  last_name?: string | null;
+  phone?: string | null;
+  distance_km?: number | null;
 };
 
 type RestaurantCourierRow = {
-  assignment_id: string;
+  assignment_id: string;        // GPS endpointte yok; courier_id ile dolduruyoruz
   courier_id: string;
   first_name?: string | null;
   last_name?: string | null;
@@ -76,6 +84,10 @@ type RestaurantCourierRow = {
   is_active?: boolean | null;
   notes?: string | null;
   assigned_at?: string | null;
+  // GPS ekstra alanları (UI şu an göstermiyor ama saklıyoruz)
+  latitude?: number | null;
+  longitude?: number | null;
+  location_updated_at?: string | null;
 };
 
 type OrderItem = {
@@ -90,14 +102,28 @@ type OrderItem = {
 export default function AddOrderCourierPage() {
   const token = React.useMemo(getAuthToken, []);
   const jwt = React.useMemo(() => parseJwt(token || undefined), [token]);
-  const restaurantId = React.useMemo(() => jwt?.userId || jwt?.sub || '', [jwt]); // kullanıcıya gösterme
-  const headers = React.useMemo<HeadersInit>(() => bearerHeaders(token), [token]);
+  // token payload’da userId yoksa sub’ı kullan
+  const restaurantId = React.useMemo(() => (jwt?.userId || jwt?.sub || ''), [jwt]);
+
+  const headers = React.useMemo<HeadersInit>(() => {
+    const h: HeadersInit = { Accept: 'application/json' };
+    if (token) (h as any).Authorization = `Bearer ${token}`;
+    if (restaurantId) (h as any)['X-Restaurant-Id'] = restaurantId; // opsiyonel güvenlik kemeri
+    return h;
+  }, [token, restaurantId]);
 
   // === State: Active Couriers (global list) ===
   const [activeCouriers, setActiveCouriers] = React.useState<CourierItem[]>([]);
   const [activeCouriersLoading, setActiveCouriersLoading] = React.useState(false);
   const [activeCouriersError, setActiveCouriersError] = React.useState<string | null>(null);
   const [qActive, setQActive] = React.useState('');
+
+  // === NEW: Nearby Couriers (<=10km, active & online) ===
+  const [nearbyCouriers, setNearbyCouriers] = React.useState<NearbyCourierItem[]>([]);
+  const [nearbyLoading, setNearbyLoading] = React.useState(false);
+  const [nearbyError, setNearbyError] = React.useState<string | null>(null);
+  const [qNearby, setQNearby] = React.useState('');
+  const [nearbyLimit, setNearbyLimit] = React.useState<number | ''>('');
 
   // === State: Restaurant Couriers (assigned to restaurant) ===
   const [restCouriers, setRestCouriers] = React.useState<RestaurantCourierRow[]>([]);
@@ -138,9 +164,8 @@ export default function AddOrderCourierPage() {
           phone: c?.phone ?? null,
           vehicle_type: c?.vehicle_type ?? null,
           is_active: typeof c?.is_active === 'boolean' ? c.is_active : null,
-          is_online: typeof c?.is_online === 'boolean' ? c.is_online : null, // <-- eklendi
+          is_online: typeof c?.is_online === 'boolean' ? c.is_online : null,
         }))
-        // sadece aktif **ve** online olanlar
         .filter((c: CourierItem) => c.id && c.is_active === true && c.is_online === true);
       setActiveCouriers(mapped);
     } catch (e: any) {
@@ -150,25 +175,113 @@ export default function AddOrderCourierPage() {
     }
   }, [headers]);
 
+  // NEW: Load Nearby Couriers
+  const loadNearbyCouriers = React.useCallback(async () => {
+    if (!restaurantId) {
+      setNearbyError('Restoran kimliği bulunamadı (token).');
+      setNearbyCouriers([]);
+      return;
+    }
+    setNearbyLoading(true);
+    setNearbyError(null);
+    try {
+      const qs = new URLSearchParams();
+      qs.set('restaurant_id', restaurantId);           // <-- zorunlu param
+      if (nearbyLimit !== '') qs.set('limit', String(nearbyLimit));
+
+      const res = await fetch(`/yuksi/restaurant/couriers/nearby?${qs.toString()}`, {
+        cache: 'no-store',
+        headers,
+      });
+      const j: any = await readJson(res);
+      if (!res.ok || j?.success === false) throw new Error(pickMsg(j, `HTTP ${res.status}`));
+
+      const list = Array.isArray(j?.data?.couriers)
+        ? j.data.couriers
+        : Array.isArray(j?.couriers)
+        ? j.couriers
+        : Array.isArray(j)
+        ? j
+        : [];
+
+      // ---- FIX: id = courier_id, isim = courier_name (split), mesafe = distance_km | distance_meters ----
+      const mapped: NearbyCourierItem[] = list.map((c: any) => {
+        const id = String(c?.courier_id ?? c?.id ?? '');
+        const full = String(c?.courier_name ?? '').trim();
+        let first: string | null = null;
+        let last: string | null = null;
+        if (full) {
+          const parts = full.split(/\s+/);
+          first = parts.shift() || null;
+          last  = parts.length ? parts.join(' ') : null;
+        }
+        let km: number | null = null;
+        if (typeof c?.distance_km === 'number') km = c.distance_km;
+        else if (typeof c?.distance === 'number') km = c.distance;
+        else if (typeof c?.distance_meters === 'number') km = c.distance_meters / 1000;
+        else if (typeof c?.distanceMeters === 'number') km = c.distanceMeters / 1000;
+
+        return {
+          id,
+          first_name: first,
+          last_name: last,
+          phone: c?.phone ?? null,
+          distance_km: km,
+        };
+      }).filter((c: NearbyCourierItem) => c.id);
+
+      setNearbyCouriers(mapped);
+    } catch (e: any) {
+      setNearbyCouriers([]);
+      setNearbyError(e?.message || 'Yakındaki kuryeler alınamadı.');
+    } finally {
+      setNearbyLoading(false);
+    }
+  }, [headers, nearbyLimit, restaurantId]);
+
+  // UPDATED: Restorana ekli kuryeler (GPS endpoint)
   const loadRestaurantCouriers = React.useCallback(async () => {
     if (!restaurantId) { setRestCouriersError('Restoran kimliği yok.'); return; }
     setRestCouriersLoading(true);
     setRestCouriersError(null);
     try {
-      const res = await fetch(`/yuksi/Restaurant/${restaurantId}/couriers`, { cache: 'no-store', headers });
+      const res = await fetch(`/yuksi/Restaurant/${restaurantId}/couriers/gps`, { cache: 'no-store', headers });
       const j: any = await readJson(res);
       if (!res.ok || j?.success === false) throw new Error(pickMsg(j, `HTTP ${res.status}`));
-      const list = Array.isArray(j?.data?.couriers) ? j.data.couriers : (Array.isArray(j?.couriers) ? j.couriers : []);
-      const mapped: RestaurantCourierRow[] = list.map((x: any) => ({
-        assignment_id: String(x?.id ?? ''),
-        courier_id: String(x?.courier_id ?? ''),
-        first_name: x?.first_name ?? null,
-        last_name: x?.last_name ?? null,
-        phone: x?.phone ?? null,
-        is_active: typeof x?.is_active === 'boolean' ? x.is_active : null,
-        notes: x?.notes ?? null,
-        assigned_at: x?.assigned_at ?? x?.created_at ?? null,
-      })).filter((row: RestaurantCourierRow) => row.assignment_id && row.courier_id);
+
+      const list = Array.isArray(j?.data?.couriers)
+        ? j.data.couriers
+        : Array.isArray(j?.couriers)
+        ? j.couriers
+        : Array.isArray(j)
+        ? j
+        : [];
+
+      const mapped: RestaurantCourierRow[] = list.map((x: any) => {
+        const courierId = String(x?.courier_id ?? '');
+        const fullName = (x?.courier_name ?? '') as string;
+        let first = null as string | null;
+        let last  = null as string | null;
+        if (fullName) {
+          const parts = String(fullName).trim().split(/\s+/);
+          first = parts.shift() || null;
+          last  = parts.length ? parts.join(' ') : null;
+        }
+        return {
+          assignment_id: courierId || (x?.id ? String(x.id) : ''), // UI anahtar için
+          courier_id: courierId,
+          first_name: first,
+          last_name: last,
+          phone: x?.courier_phone ?? null,
+          is_active: null,
+          notes: x?.notes ?? null,
+          assigned_at: x?.assigned_at ?? null,
+          latitude: typeof x?.latitude === 'number' ? x.latitude : (x?.latitude ? Number(x.latitude) : null),
+          longitude: typeof x?.longitude === 'number' ? x.longitude : (x?.longitude ? Number(x.longitude) : null),
+          location_updated_at: x?.location_updated_at ?? null,
+        };
+      }).filter((row: RestaurantCourierRow) => row.assignment_id && row.courier_id);
+
       setRestCouriers(mapped);
     } catch (e: any) {
       setRestCouriers([]); setRestCouriersError(e?.message || 'Restoran kuryeleri alınamadı.');
@@ -217,6 +330,7 @@ export default function AddOrderCourierPage() {
   React.useEffect(() => { loadActiveCouriers(); }, [loadActiveCouriers]);
   React.useEffect(() => { loadRestaurantCouriers(); }, [loadRestaurantCouriers]);
   React.useEffect(() => { loadOrders(); }, [loadOrders]);
+  React.useEffect(() => { loadNearbyCouriers(); }, [loadNearbyCouriers]); // NEW
 
   /* ===== Filtering ===== */
   const activeCouriersFiltered: CourierItem[] = React.useMemo(() => {
@@ -228,6 +342,15 @@ export default function AddOrderCourierPage() {
       return name.includes(q) || (c.phone ?? '').toLowerCase().includes(q) || veh.includes(q) || c.id.toLowerCase().includes(q);
     });
   }, [activeCouriers, qActive]);
+
+  const nearbyCouriersFiltered: NearbyCourierItem[] = React.useMemo(() => {
+    if (!qNearby.trim()) return nearbyCouriers;
+    const q = qNearby.toLowerCase();
+    return nearbyCouriers.filter((c: NearbyCourierItem) => {
+      const name = [c.first_name, c.last_name].filter(Boolean).join(' ').toLowerCase();
+      return name.includes(q) || (c.phone ?? '').toLowerCase().includes(q) || c.id.toLowerCase().includes(q);
+    });
+  }, [nearbyCouriers, qNearby]);
 
   const restCouriersFiltered: RestaurantCourierRow[] = React.useMemo(() => {
     if (!qRest.trim()) return restCouriers;
@@ -439,7 +562,7 @@ export default function AddOrderCourierPage() {
           {activeCouriersError && <div className="m-4 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{activeCouriersError}</div>}
         </section>
 
-        {/* Restorana Ekli Kuryeler */}
+        {/* Restorana Ekli Kuryeler (GPS) */}
         <section className="rounded-2xl border border-neutral-200/70 bg-white shadow-sm">
           <div className="flex items-center justify-between gap-2 border-b px-4 py-3">
             <div className="font-semibold">Restorana Ekli Kuryeler</div>
@@ -463,7 +586,7 @@ export default function AddOrderCourierPage() {
               </button>
             </div>
           </div>
-          <div className="max-h-[360px] overflow-auto">
+          <div className="max-h=[360px] overflow-auto">
             <table className="min-w-full">
               <thead>
                 <tr className="text-left text-xs text-neutral-500">
@@ -511,6 +634,85 @@ export default function AddOrderCourierPage() {
           {restCouriersError && <div className="m-4 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{restCouriersError}</div>}
         </section>
       </div>
+
+      {/* NEW: Yakındaki Kuryeler (10 km) */}
+      <section className="rounded-2xl border border-neutral-200/70 bg-white shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3">
+          <div className="font-semibold">Yakındaki Kuryeler (≤ 10 km, aktif & online)</div>
+          <div className="flex items-center gap-2">
+            <div className="relative">
+              <input
+                value={qNearby}
+                onChange={(e) => setQNearby(e.target.value)}
+                placeholder="Kurye ara…"
+                className="w-48 rounded-lg border border-neutral-300 bg-white px-3 py-1.5 pl-8 text-sm outline-none focus:ring-2 focus:ring-sky-200"
+              />
+              <Search className="pointer-events-none absolute left-2 top-1.5 h-4 w-4 text-neutral-400" />
+            </div>
+            <input
+              type="number"
+              min={1}
+              max={200}
+              value={nearbyLimit}
+              onChange={(e) => setNearbyLimit(e.target.value === '' ? '' : Number(e.target.value))}
+              placeholder="Limit (ops.)"
+              className="w-28 rounded-lg border border-neutral-300 bg-white px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-sky-200"
+              title="Maksimum kurye sayısı (opsiyonel)"
+            />
+            <button
+              onClick={loadNearbyCouriers}
+              className="inline-flex items-center gap-2 rounded-lg border border-neutral-300 bg-white px-3 py-1.5 text-sm hover:bg-neutral-50"
+              title="Yenile"
+            >
+              <RefreshCcw className="h-4 w-4" />
+              Yenile
+            </button>
+          </div>
+        </div>
+        <div className="max-h-[360px] overflow-auto">
+          <table className="min-w-full">
+            <thead>
+              <tr className="text-left text-xs text-neutral-500">
+                <th className="px-4 py-2">Kurye</th>
+                <th className="px-4 py-2">Telefon</th>
+                <th className="px-4 py-2">Mesafe</th>
+                <th className="px-4 py-2 w-36">İşlem</th>
+              </tr>
+            </thead>
+            <tbody>
+              {nearbyCouriersFiltered.map((c: NearbyCourierItem) => {
+                const name = [c.first_name, c.last_name].filter(Boolean).join(' ') || 'İsimsiz';
+                const isWorking = assigningTo === c.id;
+                return (
+                  <tr key={c.id} className="border-t text-sm">
+                    <td className="px-4 py-2">{name}</td>
+                    <td className="px-4 py-2">{c.phone ?? '—'}</td>
+                    <td className="px-4 py-2">
+                      {typeof c.distance_km === 'number' ? `${c.distance_km.toFixed(2)} km` : '—'}
+                    </td>
+                    <td className="px-4 py-2">
+                      <button
+                        onClick={() => assignToCourier(c.id)}
+                        disabled={isWorking || !selectedOrderId}
+                        className="inline-flex items-center gap-2 rounded-lg bg-orange-600 px-3 py-1.5 text-xs font-semibold text-white shadow hover:bg-orange-700 disabled:opacity-60"
+                        title="Seçili siparişi bu kuryeye ata"
+                      >
+                        {isWorking ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserRoundCheck className="h-4 w-4" />}
+                        Siparişi Ata
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+              {nearbyCouriersFiltered.length === 0 && (
+                <tr><td colSpan={4} className="px-4 py-6 text-center text-sm text-neutral-500">Kayıt yok.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+        {nearbyLoading && <div className="px-4 py-2 text-xs text-neutral-500">Yükleniyor…</div>}
+        {nearbyError && <div className="m-4 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{nearbyError}</div>}
+      </section>
 
       {/* Seçili sipariş özeti */}
       <div className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800">
