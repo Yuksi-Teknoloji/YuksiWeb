@@ -1,7 +1,7 @@
 // src/app/dashboards/[role]/restaurants/layout.tsx
-import { notFound } from "next/navigation";
 import DashboardShell from "@/components/dashboard/Shell";
 import { navForRole } from "@/app/config/nav";
+import { notFound } from "next/navigation";
 import { isRole } from "@/types/roles";
 
 export default async function DealersLayout({
