@@ -4,12 +4,11 @@ import * as React from 'react';
 import { getAuthToken } from '@/utils/auth';
 import dynamic from 'next/dynamic';
 
-
 const MapPicker = dynamic(() => import('@/components/map/MapPicker'), { ssr: false });
 
 /* ======= types & helpers ======= */
 type DeliveryTypeUI = 'today' | 'appointment';
-type DeliveryTypeAPI = 'immediate' | 'appointment';
+type DeliveryTypeAPI = 'immediate' | 'scheduled';
 
 type ExtraServiceKey = 'fragile' | 'helpCarry' | 'returnTrip' | 'stairs' | 'insurance';
 
@@ -26,11 +25,16 @@ const EXTRA_SERVICES: Record<
 
 async function readJson<T = any>(res: Response): Promise<T> {
   const t = await res.text();
-  try { return t ? JSON.parse(t) : (null as any); } catch { return (t as any); }
+  try {
+    return t ? JSON.parse(t) : (null as any);
+  } catch {
+    return t as any;
+  }
 }
-const pickMsg = (d: any, fb: string) => d?.error?.message || d?.message || d?.detail || d?.title || fb;
+const pickMsg = (d: any, fb: string) =>
+  d?.error?.message || d?.message || d?.detail || d?.title || fb;
 
-// API errorları için güçlü toplayıcı (array object, array string, map vs.)
+// API hata toplayıcı
 function collectErrors(x: any): string {
   const msgs: string[] = [];
   if (x?.message) msgs.push(String(x.message));
@@ -41,30 +45,43 @@ function collectErrors(x: any): string {
     for (const it of err) {
       if (typeof it === 'string') msgs.push(it);
       else if (it && typeof it === 'object') {
-        const loc = Array.isArray(it.loc) ? it.loc.join('.') : it.loc ?? '';
-        const m = it.msg || it.message || it.detail;
+        const loc = Array.isArray((it as any).loc) ? (it as any).loc.join('.') : (it as any).loc ?? '';
+        const m = (it as any).msg || (it as any).message || (it as any).detail;
         if (loc && m) msgs.push(`${loc}: ${m}`);
         else if (m) msgs.push(String(m));
       }
     }
   } else if (err && typeof err === 'object') {
     for (const [k, v] of Object.entries(err)) {
-      if (Array.isArray(v)) (v as any[]).forEach(m => msgs.push(`${k}: ${m}`));
+      if (Array.isArray(v)) (v as any[]).forEach((m) => msgs.push(`${k}: ${m}`));
       else if (v) msgs.push(`${k}: ${v}`);
     }
   }
   return msgs.join('\n');
 }
 
+// HTML date (YYYY-MM-DD) -> "DD.MM.YYYY"
+function toTRDate(d: string) {
+  if (!d) return '';
+  const [y, m, day] = d.split('-');
+  return `${day}.${m}.${y}`;
+}
+// HTML time (HH:mm) -> "HH:mm"
+function toTRTime(t: string) {
+  return t || '';
+}
+
 /* ======= page ======= */
 export default function CreateLoadPage() {
   // UI state
   const [deliveryType, setDeliveryType] = React.useState<DeliveryTypeUI>('today');
+  const [schedDate, setSchedDate] = React.useState<string>(''); // randevulu ise
+  const [schedTime, setSchedTime] = React.useState<string>('');
 
-  const [carrierType, setCarrierType] = React.useState('courier');       // swagger örneği 'courier'
+  const [carrierType, setCarrierType] = React.useState('courier'); // swagger 'courier'
   const [carrierVehicle, setCarrierVehicle] = React.useState('motorcycle'); // 'motorcycle'
 
-  const [loadType, setLoadType] = React.useState(''); // UI’da dursun, API’ye gönderilmeyecek
+  const [loadType, setLoadType] = React.useState(''); // UI etiketi, API’ye gönderilmeyecek
 
   const [pickup, setPickup] = React.useState('');
   const [pickupLat, setPickupLat] = React.useState<string>('');
@@ -80,17 +97,22 @@ export default function CreateLoadPage() {
   const [couponApplied, setCouponApplied] = React.useState<string | null>(null);
 
   const [extras, setExtras] = React.useState<Record<ExtraServiceKey, boolean>>({
-    fragile: false, helpCarry: false, returnTrip: false, stairs: false, insurance: false,
+    fragile: false,
+    helpCarry: false,
+    returnTrip: false,
+    stairs: false,
+    insurance: false,
   });
 
   const [basePrice, setBasePrice] = React.useState<number | ''>(''); // manuel taban ücret
   const extrasTotal = React.useMemo(
-    () => (Object.keys(extras) as ExtraServiceKey[])
-      .filter(k => extras[k])
-      .reduce((sum, k) => sum + EXTRA_SERVICES[k].price, 0),
-    [extras]
+    () =>
+      (Object.keys(extras) as ExtraServiceKey[])
+        .filter((k) => extras[k])
+        .reduce((sum, k) => sum + EXTRA_SERVICES[k].price, 0),
+    [extras],
   );
-  const computedTotal = (Number(basePrice || 0) + extrasTotal);
+  const computedTotal = Number(basePrice || 0) + extrasTotal;
 
   // !!! allowed: 'cash' | 'card' | 'transfer'
   const [payMethod, setPayMethod] = React.useState<'cash' | 'card' | 'transfer' | ''>('');
@@ -103,28 +125,57 @@ export default function CreateLoadPage() {
 
   const token = React.useMemo(getAuthToken, []);
 
-  function toggleExtra(key: ExtraServiceKey) { setExtras(p => ({ ...p, [key]: !p[key] })); }
-  function applyCoupon() { if (coupon.trim()) setCouponApplied(coupon.trim()); }
+  function toggleExtra(key: ExtraServiceKey) {
+    setExtras((p) => ({ ...p, [key]: !p[key] }));
+  }
+  function applyCoupon() {
+    if (coupon.trim()) setCouponApplied(coupon.trim());
+  }
   function onUploadChange(e: React.ChangeEvent<HTMLInputElement>) {
     const list = e.target.files ? Array.from(e.target.files) : [];
-    if (list.length) setFiles(p => [...p, ...list]);
+    if (list.length) setFiles((p) => [...p, ...list]);
   }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    setOkMsg(null); setErrMsg(null);
+    setOkMsg(null);
+    setErrMsg(null);
 
-    if (!pickup || !dropoff) { setErrMsg('Adresleri girin.'); return; }
-    if (!payMethod) { setErrMsg('Ödeme yöntemi seçin.'); return; }
+    if (!pickup || !dropoff) {
+      setErrMsg('Adresleri girin.');
+      return;
+    }
+    if (!payMethod) {
+      setErrMsg('Ödeme yöntemi seçin.');
+      return;
+    }
 
-    const deliveryTypeApi: DeliveryTypeAPI = deliveryType === 'today' ? 'immediate' : 'appointment';
+    const deliveryTypeApi: DeliveryTypeAPI =
+      deliveryType === 'today' ? 'immediate' : 'scheduled';
+
+    // scheduled ise tarih/saat zorunlu
+    if (deliveryTypeApi === 'scheduled' && (!schedDate || !schedTime)) {
+      setErrMsg('Randevulu teslimatlar için tarih ve saat seçin.');
+      return;
+    }
 
     const extraServices = (Object.keys(extras) as ExtraServiceKey[])
-      .filter(k => extras[k])
-      .map(k => ({ serviceId: EXTRA_SERVICES[k].id, name: EXTRA_SERVICES[k].label, price: EXTRA_SERVICES[k].price }));
+      .filter((k) => extras[k])
+      .map((k) => ({
+        serviceId: EXTRA_SERVICES[k].id,
+        name: EXTRA_SERVICES[k].label,
+        price: EXTRA_SERVICES[k].price,
+      }));
 
-    const pLat = Number(pickupLat), pLng = Number(pickupLng);
-    const dLat = Number(dropLat), dLng = Number(dropLng);
+    const pLat = Number(pickupLat),
+      pLng = Number(pickupLng);
+    const dLat = Number(dropLat),
+      dLng = Number(dropLng);
+
+    const deliveryDate =
+      deliveryTypeApi === 'scheduled' ? (toTRDate(schedDate) || null) : null;
+    const deliveryTime =
+      deliveryTypeApi === 'scheduled' ? (toTRTime(schedTime) || null) : null;
 
     // ---> loadType API'ye GÖNDERİLMİYOR <---
     const body = {
@@ -132,9 +183,15 @@ export default function CreateLoadPage() {
       carrierType,
       vehicleType: carrierVehicle,
       pickupAddress: pickup,
-      pickupCoordinates: (Number.isFinite(pLat) && Number.isFinite(pLng)) ? [pLat, pLng] : undefined,
+      pickupCoordinates:
+        Number.isFinite(pLat) && Number.isFinite(pLng)
+          ? ([pLat, pLng] as [number, number])
+          : undefined,
       dropoffAddress: dropoff,
-      dropoffCoordinates: (Number.isFinite(dLat) && Number.isFinite(dLng)) ? [dLat, dLng] : undefined,
+      dropoffCoordinates:
+        Number.isFinite(dLat) && Number.isFinite(dLng)
+          ? ([dLat, dLng] as [number, number])
+          : undefined,
       specialNotes: note || undefined,
       campaignCode: couponApplied || (coupon.trim() || undefined),
       extraServices,
@@ -142,11 +199,15 @@ export default function CreateLoadPage() {
       totalPrice: computedTotal,
       paymentMethod: payMethod, // 'cash' | 'card' | 'transfer'
       imageFileIds: [],
+
+      // randevu alanları (immediate ise null)
+      deliveryDate,
+      deliveryTime,
     };
 
     setBusy(true);
     try {
-      const res = await fetch('/yuksi/admin/jobs', {
+      const res = await fetch('/yuksi/Restaurant/jobs', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -161,11 +222,28 @@ export default function CreateLoadPage() {
 
       setOkMsg(collectErrors(j) || 'Gönderi oluşturuldu.');
       // reset
-      setPickup(''); setPickupLat(''); setPickupLng('');
-      setDropoff(''); setDropLat(''); setDropLng('');
-      setNote(''); setCoupon(''); setCouponApplied(null);
-      setExtras({ fragile: false, helpCarry: false, returnTrip: false, stairs: false, insurance: false });
-      setBasePrice(''); setPayMethod(''); setFiles([]);
+      setPickup('');
+      setPickupLat('');
+      setPickupLng('');
+      setDropoff('');
+      setDropLat('');
+      setDropLng('');
+      setNote('');
+      setCoupon('');
+      setCouponApplied(null);
+      setExtras({
+        fragile: false,
+        helpCarry: false,
+        returnTrip: false,
+        stairs: false,
+        insurance: false,
+      });
+      setBasePrice('');
+      setPayMethod('');
+      setFiles([]);
+      setSchedDate('');
+      setSchedTime('');
+      setDeliveryType('today');
     } catch (e: any) {
       setErrMsg(e?.message || 'Gönderi oluşturulamadı.');
     } finally {
@@ -179,8 +257,16 @@ export default function CreateLoadPage() {
         <h1 className="text-2xl font-semibold">Yeni Gönderi</h1>
       </div>
 
-      {okMsg && <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 whitespace-pre-line">{okMsg}</div>}
-      {errMsg && <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 whitespace-pre-line">{errMsg}</div>}
+      {okMsg && (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 whitespace-pre-line">
+          {okMsg}
+        </div>
+      )}
+      {errMsg && (
+        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 whitespace-pre-line">
+          {errMsg}
+        </div>
+      )}
 
       {/* Gönderim Tipi */}
       <section className="rounded-2xl border border-neutral-200/70 bg-white p-6 shadow-sm soft-card">
@@ -208,9 +294,32 @@ export default function CreateLoadPage() {
                 : 'bg-white text-neutral-800 border-neutral-300 hover:bg-neutral-50',
             ].join(' ')}
           >
-            Randevulu (appointment)
+            Randevulu (scheduled)
           </button>
         </div>
+
+        {deliveryType === 'appointment' && (
+          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className="mb-2 block text-sm font-semibold">Teslim Tarihi</label>
+              <input
+                type="date"
+                value={schedDate}
+                onChange={(e) => setSchedDate(e.target.value)}
+                className="w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 outline-none ring-2 ring-transparent transition focus:bg-white focus:ring-sky-200"
+              />
+            </div>
+            <div>
+              <label className="mb-2 block text-sm font-semibold">Teslim Saati</label>
+              <input
+                type="time"
+                value={schedTime}
+                onChange={(e) => setSchedTime(e.target.value)}
+                className="w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 outline-none ring-2 ring-transparent transition focus:bg-white focus:ring-sky-200"
+              />
+            </div>
+          </div>
+        )}
       </section>
 
       {/* Üst alanlar */}
@@ -247,29 +356,16 @@ export default function CreateLoadPage() {
           </div>
         </div>
 
-        {/* Yük tipi (API'ye gönderilmiyor) */}
-        {/* <div className="mt-5">
-          <label className="mb-2 block text-sm font-semibold">Yük Tipi (sadece not/etiket; API'ye gönderilmiyor)</label>
-          <select
-            value={loadType}
-            onChange={(e) => setLoadType(e.target.value)}
-            className="w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 outline-none ring-2 ring-transparent transition focus:bg-white focus:ring-sky-200"
-          >
-            <option value="">Seçiniz</option>
-            <option value="smallPackage">Küçük Paket</option>
-            <option value="document">Evrak</option>
-            <option value="furniture">Mobilya</option>
-            <option value="appliance">Beyaz Eşya</option>
-            <option value="fragile">Hassas / Kırılabilir</option>
-          </select>
-        </div> */}
-
         {/* === GÖNDERİCİ (PICKUP) === */}
         <MapPicker
           label="Gönderici Konumu"
           value={
             pickupLat && pickupLng
-              ? { lat: Number(pickupLat), lng: Number(pickupLng), address: pickup || undefined }
+              ? {
+                  lat: Number(pickupLat),
+                  lng: Number(pickupLng),
+                  address: pickup || undefined,
+                }
               : null
           }
           onChange={(p) => {
@@ -284,7 +380,11 @@ export default function CreateLoadPage() {
           label="Teslimat Konumu"
           value={
             dropLat && dropLng
-              ? { lat: Number(dropLat), lng: Number(dropLng), address: dropoff || undefined }
+              ? {
+                  lat: Number(dropLat),
+                  lng: Number(dropLng),
+                  address: dropoff || undefined,
+                }
               : null
           }
           onChange={(p) => {
@@ -297,7 +397,13 @@ export default function CreateLoadPage() {
         {/* Notlar */}
         <div className="mt-6">
           <label className="mb-2 block text-sm font-semibold">Özel Notlar</label>
-          <textarea rows={4} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Örn: Paket sıcak kalmalı…" className="w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 outline-none ring-2 ring-transparent transition focus:bg-white focus:ring-sky-200" />
+          <textarea
+            rows={4}
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="Örn: Paket sıcak kalmalı…"
+            className="w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 outline-none ring-2 ring-transparent transition focus:bg-white focus:ring-sky-200"
+          />
         </div>
       </section>
 
@@ -307,22 +413,47 @@ export default function CreateLoadPage() {
         <div className="mb-6">
           <label className="mb-2 block text-sm font-semibold">Kampanya Kodu</label>
           <div className="flex overflow-hidden rounded-xl border border-neutral-300">
-            <input value={coupon} onChange={(e) => setCoupon(e.target.value)} placeholder="Kodu yazın" className="w-full bg-neutral-100 px-3 py-2 outline-none" />
-            <button type="button" onClick={applyCoupon} className="bg-rose-50 px-4 text-rose-600 hover:bg-rose-100">Uygula</button>
+            <input
+              value={coupon}
+              onChange={(e) => setCoupon(e.target.value)}
+              placeholder="Kodu yazın"
+              className="w-full bg-neutral-100 px-3 py-2 outline-none"
+            />
+            <button
+              type="button"
+              onClick={applyCoupon}
+              className="bg-rose-50 px-4 text-rose-600 hover:bg-rose-100"
+            >
+              Uygula
+            </button>
           </div>
-          {couponApplied && <div className="mt-2 text-sm text-emerald-600">“{couponApplied}” kuponu uygulandı.</div>}
+          {couponApplied && (
+            <div className="mt-2 text-sm text-emerald-600">
+              “{couponApplied}” kuponu uygulandı.
+            </div>
+          )}
         </div>
 
         {/* Ek Hizmetler */}
         <div className="mb-2 text-sm font-semibold">Ek Hizmetler</div>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {(Object.keys(EXTRA_SERVICES) as ExtraServiceKey[]).map((k) => (
-            <label key={k} className="flex cursor-pointer items-center justify-between rounded-xl border border-neutral-200 px-3 py-2 hover:bg-neutral-50">
+            <label
+              key={k}
+              className="flex cursor-pointer items-center justify-between rounded-xl border border-neutral-200 px-3 py-2 hover:bg-neutral-50"
+            >
               <div className="flex items-center gap-2">
-                <input type="checkbox" checked={extras[k]} onChange={() => toggleExtra(k)} className="h-4 w-4" />
+                <input
+                  type="checkbox"
+                  checked={extras[k]}
+                  onChange={() => toggleExtra(k)}
+                  className="h-4 w-4"
+                />
                 <span className="text-sm">{EXTRA_SERVICES[k].label}</span>
               </div>
-              <span className="text-sm font-semibold">{EXTRA_SERVICES[k].price.toFixed(0)}₺</span>
+              <span className="text-sm font-semibold">
+                {EXTRA_SERVICES[k].price.toFixed(0)}₺
+              </span>
             </label>
           ))}
         </div>
@@ -330,18 +461,38 @@ export default function CreateLoadPage() {
         <div className="mt-4 grid gap-4 md:grid-cols-3">
           <div>
             <label className="mb-1 block text-sm font-semibold">Taban Ücret (₺)</label>
-            <input type="number" min={0} value={basePrice} onChange={(e) => setBasePrice(e.target.value === '' ? '' : Math.max(0, Number(e.target.value)))} className="w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 outline-none focus:bg-white focus:ring-2 focus:ring-sky-200" />
+            <input
+              type="number"
+              min={0}
+              value={basePrice}
+              onChange={(e) =>
+                setBasePrice(
+                  e.target.value === '' ? '' : Math.max(0, Number(e.target.value)),
+                )
+              }
+              className="w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 outline-none focus:bg-white focus:ring-2 focus:ring-sky-200"
+            />
           </div>
           <div className="self-end text-sm">
-            <div><span className="font-semibold">Ek Hizmet Toplamı: </span>{extrasTotal}₺</div>
-            <div><span className="font-semibold">Genel Toplam: </span>{computedTotal}₺</div>
+            <div>
+              <span className="font-semibold">Ek Hizmet Toplamı: </span>
+              {extrasTotal}₺
+            </div>
+            <div>
+              <span className="font-semibold">Genel Toplam: </span>
+              {computedTotal}₺
+            </div>
           </div>
         </div>
 
         {/* Ödeme yöntemi (cash/card/transfer) */}
         <div className="mt-6">
           <label className="mb-2 block text-sm font-semibold">Ödeme Yöntemi</label>
-          <select value={payMethod} onChange={(e) => setPayMethod(e.target.value as any)} className="w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 outline-none ring-2 ring-transparent transition focus:bg-white focus:ring-sky-200">
+          <select
+            value={payMethod}
+            onChange={(e) => setPayMethod(e.target.value as any)}
+            className="w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 outline-none ring-2 ring-transparent transition focus:bg-white focus:ring-sky-200"
+          >
             <option value="">Seçiniz</option>
             <option value="cash">Nakit (cash)</option>
             <option value="card">Kart (card)</option>
@@ -352,14 +503,16 @@ export default function CreateLoadPage() {
         {/* Resim ekle (ID servisi yok -> boş dizi) */}
         <div className="mt-6">
           <label className="mb-2 block text-sm font-semibold">Resim Ekle</label>
-          <input type="file" accept="image/*" multiple onChange={(e) => {
-            const list = e.target.files ? Array.from(e.target.files) : [];
-            if (list.length) setFiles(p => [...p, ...list]);
-          }} />
+          <input type="file" accept="image/*" multiple onChange={onUploadChange} />
           {files.length > 0 && (
             <div className="mt-3 flex flex-wrap gap-2">
               {files.map((f, i) => (
-                <div key={i} className="rounded-md border border-neutral-200 bg-white px-2 py-1 text-xs shadow-sm">{f.name}</div>
+                <div
+                  key={i}
+                  className="rounded-md border border-neutral-200 bg-white px-2 py-1 text-xs shadow-sm"
+                >
+                  {f.name}
+                </div>
               ))}
             </div>
           )}
@@ -367,7 +520,11 @@ export default function CreateLoadPage() {
       </section>
 
       <div className="flex items-center justify-end">
-        <button type="submit" disabled={busy} className="rounded-2xl bg-indigo-500 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-600 disabled:opacity-60">
+        <button
+          type="submit"
+          disabled={busy}
+          className="rounded-2xl bg-indigo-500 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-600 disabled:opacity-60"
+        >
           {busy ? 'Gönderiliyor…' : 'Kaydet'}
         </button>
       </div>
