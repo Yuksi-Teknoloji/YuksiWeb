@@ -34,6 +34,8 @@ export default function CreateDealerPage() {
     name: '',
     surname: '',
     phone: '',
+    email: '',        // <-- NEW
+    password: '',     // <-- NEW
     resume: '',
     address: '',
     country_id: '' as number | '',
@@ -168,6 +170,8 @@ export default function CreateDealerPage() {
         address: form.address,
         city_id: Number(form.city_id || 0),
         country_id: Number(form.country_id || 0),
+        email: form.email || undefined,         // <-- NEW
+        password: form.password || undefined,   // <-- NEW
         iban: form.iban,
         name: form.name,
         phone: form.phone,
@@ -191,7 +195,7 @@ export default function CreateDealerPage() {
       // Temel alanları temizle
       setForm((p) => ({
         ...p,
-        name: '', surname: '', phone: '', resume: '', address: '',
+        name: '', surname: '', phone: '', email: '', password: '', resume: '', address: '',
         tax_office: '', tax_number: '', iban: '',
         country_id: '', state_id: '', city_id: '',
       }));
@@ -251,6 +255,30 @@ export default function CreateDealerPage() {
               <label className="mb-1 block text-sm font-semibold text-neutral-700">Telefon</label>
               <input className="w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 outline-none focus:bg-white focus:ring-2 focus:ring-sky-200"
                 value={form.phone} onChange={(e) => set('phone', e.target.value)} placeholder="+90..." />
+            </div>
+
+            {/* NEW: Email */}
+            <div>
+              <label className="mb-1 block text-sm font-semibold text-neutral-700">E-posta</label>
+              <input
+                type="email"
+                className="w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 outline-none focus:bg-white focus:ring-2 focus:ring-sky-200"
+                value={form.email}
+                onChange={(e) => set('email', e.target.value)}
+                placeholder="mehmet@example.com"
+              />
+            </div>
+
+            {/* NEW: Password */}
+            <div>
+              <label className="mb-1 block text-sm font-semibold text-neutral-700">Şifre</label>
+              <input
+                type="password"
+                className="w-full rounded-xl border border-neutral-300 bg-neutral-100 px-3 py-2 outline-none focus:bg-white focus:ring-2 focus:ring-sky-200"
+                value={form.password}
+                onChange={(e) => set('password', e.target.value)}
+                placeholder="••••••••"
+              />
             </div>
 
             <div>

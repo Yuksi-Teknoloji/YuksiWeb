@@ -4,7 +4,7 @@ export type JwtClaims = {
   unique_name?: string;
   userId?: string;
   email?: string;
-  userType?: "restaurant" | "driver" | "admin" | "customer" | string;
+  userType?: "restaurant" | "driver" | "admin" | "customer" | "dealer" | string;
   nbf?: number; exp?: number; iat?: number;
   iss?: string; aud?: string;
 };
@@ -43,6 +43,7 @@ export function roleSegment(userType?: string): string | null {
     driver: "driver",
     admin: "admin",
     customer: "customer",
+    dealer: "dealer"
   };
   return map[userType] ?? userType; // bilinmeyenleri de geçir
 }
