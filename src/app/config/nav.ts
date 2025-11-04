@@ -147,6 +147,7 @@ export const NAV: Record<Role, RawNavGroup[]> = {
         { label: "Siparişe Kurye Ata",                  path: "restaurants/courier/list-courier" },
         { label: "Sipariş Oluştur",                  path: "restaurants/create-order" },
         { label: "Sipariş Geçmişi",                  path: "restaurants/order-history" },
+        { label: "Menü",                  path: "restaurants/menu" },
         { label: "Destek",                  path: "restaurants/supports" },
         { label: "Fatura ve Ödemeler",  path: "restaurants/invoices" },
         { label: "Bildirimler",                  path: "restaurants/notifications" },

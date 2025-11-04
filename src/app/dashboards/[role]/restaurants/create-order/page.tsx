@@ -3,12 +3,12 @@
 
 import * as React from 'react';
 import dynamic from 'next/dynamic';
+import { getAuthToken } from '@/utils/auth';
 
-/* MapPicker (projendeki hazır komponent) */
 const MapPicker = dynamic(() => import('@/components/map/MapPicker'), { ssr: false });
+
 type GeoPoint = { lat: number; lng: number; address?: string };
 
-/* ---------- küçük yardımcılar ---------- */
 async function readJson(res: Response) {
   const t = await res.text();
   try { return t ? JSON.parse(t) : null; } catch { return null; }
@@ -16,13 +16,6 @@ async function readJson(res: Response) {
 const pickMsg = (d: any, fb: string) =>
   d?.message || d?.title || d?.detail || d?.error?.message || fb;
 
-function getCookie(name: string) {
-  if (typeof document === 'undefined') return '';
-  const m = document.cookie.match(new RegExp('(?:^|; )' + name.replace(/([$?*|{}\]\\^])/g,'\\$1') + '=([^;]*)'));
-  return m ? decodeURIComponent(m[1]) : '';
-}
-
-// JWT decode (payload)
 function decodeJwtPayload(token: string | null | undefined): any | null {
   if (!token) return null;
   const raw = token.replace(/^Bearer\s+/i, '');
@@ -34,38 +27,22 @@ function decodeJwtPayload(token: string | null | undefined): any | null {
   } catch { return null; }
 }
 
-// Token’ı olası yerlerden dene
-function findToken(): string | null {
-  if (typeof window === 'undefined') return null;
-  const candKeys = ['auth_token','access_token','token','jwt','id_token','auth','user','session'];
-  for (const k of candKeys) {
-    const v = localStorage.getItem(k);
-    if (!v) continue;
-    try {
-      const maybe = JSON.parse(v);
-      if (typeof maybe === 'string') return maybe;
-      if (typeof maybe?.auth_token === 'string') return maybe.auth_token;
-      if (typeof maybe?.access_token === 'string') return maybe.access_token;
-      if (typeof maybe?.token === 'string') return maybe.token;
-      if (typeof maybe?.jwt === 'string') return maybe.jwt;
-    } catch {
-      if (typeof v === 'string' && v.split('.').length >= 2) return v;
-    }
-  }
-  const cookieCandidates = ['auth_token','access_token','token','jwt','Authorization'];
-  for (const c of cookieCandidates) {
-    const cv = getCookie(c);
-    if (cv) return cv;
-  }
-  return null;
-}
-
 /* ---------- API alanları ---------- */
 type ApiType = 'yerinde' | 'paket_servis' | 'gel_al';
-type Item = { id: string; product_name: string; price: number; quantity: number };
+
+/** Menüden gelecek ürün basiti */
+type MenuItem = { id: string; name: string; price: number };
+
+/** Form içi satır: seçilen ürün + adet */
+type ItemRow = {
+  id: string;          // satır uuid
+  menu_id?: string;    // seçili menü id
+  product_name: string;
+  price: number;
+  quantity: number;
+};
 
 export default function RestaurantOrderCreate() {
-  // hem restaurantId (path’te) hem userId (payload’ta)
   const [restaurantId, setRestaurantId] = React.useState<string | null>(null);
   const [userId, setUserId] = React.useState<string | null>(null);
   const [idErr, setIdErr] = React.useState<string | null>(null);
@@ -80,11 +57,17 @@ export default function RestaurantOrderCreate() {
   const [vehicleType, setVehicleType] = React.useState<'2_teker_motosiklet'|'3_teker_motosiklet'>('2_teker_motosiklet');
   const [cargoType, setCargoType] = React.useState('');
   const [special, setSpecial] = React.useState('');
-  const [items, setItems] = React.useState<Item[]>([
+
+  // MENÜ: ürün ve fiyatlar bu listeden gelir
+  const [menu, setMenu] = React.useState<MenuItem[]>([]);
+  const [menuLoading, setMenuLoading] = React.useState(false);
+  const [menuErr, setMenuErr] = React.useState<string | null>(null);
+
+  // satırlar: sadece ürün seçimi + adet
+  const [items, setItems] = React.useState<ItemRow[]>([
     { id: crypto.randomUUID(), product_name: '', price: 0, quantity: 1 },
   ]);
 
-  // Konumlar (pickup = restoran, dropoff = teslimat)
   const [pickup, setPickup] = React.useState<GeoPoint | null>(null);
   const [dropoff, setDropoff] = React.useState<GeoPoint | null>(null);
 
@@ -97,25 +80,24 @@ export default function RestaurantOrderCreate() {
   const [ok, setOk] = React.useState<string | null>(null);
   const [err, setErr] = React.useState<string | null>(null);
 
-  // Mount: token’dan userId/restaurantId çek + restoran konumunu localStorage’dan al
+  // Mount: token’dan userId/restaurantId çıkar, restoran konumunu yükle
   React.useEffect(() => {
-    const token = findToken();
+    const token = getAuthToken();
     const payload = decodeJwtPayload(token || undefined);
 
     const uid =
       (payload?.userId && String(payload.userId)) ||
       (payload?.sub && String(payload.sub)) || null;
 
+    // backend tek restoran yetkiliyse restaurant_id = sub olabilir
     const ridFromLS = typeof window !== 'undefined' ? localStorage.getItem('restaurant_id') : null;
     const rid = ridFromLS || uid;
 
     if (uid) setUserId(uid);
     if (rid) setRestaurantId(rid);
-
     if (!rid) setIdErr('Token içinde restaurant_id/userId bulunamadı.');
     else setIdErr(null);
 
-    // restoran konumu: bir kere seçip kaydedilebilir (localStorage)
     try {
       const saved = localStorage.getItem('restaurant_geo');
       if (saved) {
@@ -125,73 +107,93 @@ export default function RestaurantOrderCreate() {
     } catch {}
   }, []);
 
-  // pickup her güncellendiğinde yerel olarak sakla (kullanışlı)
-  React.useEffect(() => {
-    if (!pickup?.lat || !pickup?.lng) return;
+  // MENÜYÜ YÜKLE (sadece yetkili restoranın menüsü döner)
+  const loadMenu = React.useCallback(async () => {
+    setMenuLoading(true); setMenuErr(null);
     try {
-      localStorage.setItem('restaurant_geo', JSON.stringify(pickup));
-    } catch {}
-  }, [pickup?.lat, pickup?.lng]);
+      const token = getAuthToken();
+      const res = await fetch('/yuksi/Restaurant/Menu/', {
+        headers: {
+          Accept: 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        cache: 'no-store',
+      });
+      const j: any = await readJson(res);
+      if (!res.ok) throw new Error(pickMsg(j, `HTTP ${res.status}`));
 
-  // kalem helpers
+      const arr = Array.isArray(j?.data) ? j.data : Array.isArray(j) ? j : [];
+      const mapped: MenuItem[] = (arr as any[]).map((m: any) => ({
+        id: String(m?.id ?? ''),
+        name: String(m?.name ?? ''),
+        price: typeof m?.price === 'number' ? m.price : Number(m?.price ?? 0),
+      })).filter(m => m.id && m.name);
+
+      setMenu(mapped);
+    } catch (e: any) {
+      setMenuErr(e?.message || 'Menü yüklenemedi.');
+      setMenu([]);
+    } finally {
+      setMenuLoading(false);
+    }
+  }, []);
+  React.useEffect(() => { loadMenu(); }, [loadMenu]);
+
+  // satır helpers
   function addItem() {
     setItems(p => [...p, { id: crypto.randomUUID(), product_name: '', price: 0, quantity: 1 }]);
   }
-  function updateItem(id: string, patch: Partial<Item>) {
-    setItems(p => p.map(x => (x.id === id ? { ...x, ...patch } : x)));
+  function selectMenuForRow(rowId: string, menuId: string) {
+    const m = menu.find(x => x.id === menuId);
+    setItems(p => p.map(x => x.id === rowId
+      ? { ...x, menu_id: menuId, product_name: m?.name || '', price: m?.price ?? 0 }
+      : x));
   }
-  function removeItem(id: string) {
-    setItems(p => (p.length > 1 ? p.filter(x => x.id !== id) : p));
+  function changeQty(rowId: string, qty: number) {
+    setItems(p => p.map(x => x.id === rowId ? { ...x, quantity: Math.max(1, qty || 1) } : x));
   }
+  function removeItem(rowId: string) {
+    setItems(p => (p.length > 1 ? p.filter(x => x.id !== rowId) : p));
+  }
+
+  // pickup konumunu LS'de tut
+  React.useEffect(() => {
+    if (!pickup?.lat || !pickup?.lng) return;
+    try { localStorage.setItem('restaurant_geo', JSON.stringify(pickup)); } catch {}
+  }, [pickup?.lat, pickup?.lng]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setOk(null); setErr(null);
 
-    if (!restaurantId) {
-      setErr(idErr || 'Restaurant ID yok.');
-      return;
-    }
-
-    // konum doğrulamaları
-    if (!pickup?.lat || !pickup?.lng) {
-      setErr('Restoran konumunu (pickup) seçin.');
-      return;
-    }
-    // yerinde olmayan siparişlerde dropoff zorunlu
+    if (!restaurantId) { setErr(idErr || 'Restaurant ID yok.'); return; }
+    if (!pickup?.lat || !pickup?.lng) { setErr('Restoran konumunu (pickup) seçin.'); return; }
     const needDrop = type !== 'yerinde';
     const effectiveDropoff: GeoPoint | null = needDrop ? dropoff : (dropoff ?? pickup);
-    if (!effectiveDropoff?.lat || !effectiveDropoff?.lng) {
-      setErr('Teslimat konumunu (dropoff) seçin.');
-      return;
-    }
+    if (!effectiveDropoff?.lat || !effectiveDropoff?.lng) { setErr('Teslimat konumunu (dropoff) seçin.'); return; }
+
+    const cleanItems = items
+      .filter(i => i.menu_id && i.product_name && i.quantity > 0)
+      .map(i => ({
+        product_name: i.product_name, // backend şu an isim+fiyat bekliyor
+        price: +Number(i.price || 0).toFixed(2),
+        quantity: Number(i.quantity || 0),
+      }));
+    if (cleanItems.length === 0) { setErr('En az bir ürün seçin.'); return; }
 
     setSaving(true);
     try {
-      const cleanItems = items
-        .filter(i => i.product_name.trim() && i.quantity > 0)
-        .map(i => ({
-          product_name: i.product_name.trim(),
-          price: +Number(i.price || 0).toFixed(2),
-          quantity: Number(i.quantity || 0),
-        }));
-      if (cleanItems.length === 0) throw new Error('En az bir ürün ekleyin.');
-
-      // 👉 user_id’yi payload’a ekliyoruz + pickup/dropoff koordinatları
       const payload = {
         user_id: userId || restaurantId,
         customer: customer.trim(),
         phone: phone.trim(),
         address: address.trim(),
         delivery_address: (deliveryAddress || address).trim(),
-
-        // HARİTA KOORDİNATLARI (endpoint görselindeki alanlara göre)
         pickup_lat: +Number(pickup.lat).toFixed(6),
         pickup_lng: +Number(pickup.lng).toFixed(6),
         dropoff_lat: +Number(effectiveDropoff.lat).toFixed(6),
         dropoff_lng: +Number(effectiveDropoff.lng).toFixed(6),
-
-        type, // 'yerinde' | 'gel_al' | 'paket_servis'
+        type,
         amount: +amount.toFixed(2),
         carrier_type: carrierType || 'kurye',
         vehicle_type: vehicleType,
@@ -200,8 +202,7 @@ export default function RestaurantOrderCreate() {
         items: cleanItems,
       };
 
-      const token = findToken();
-
+      const token = getAuthToken();
       const res = await fetch(`/yuksi/restaurant/${restaurantId}/orders`, {
         method: 'POST',
         headers: {
@@ -214,8 +215,6 @@ export default function RestaurantOrderCreate() {
       if (!res.ok) throw new Error(pickMsg(data, `HTTP ${res.status}`));
 
       setOk(data?.message || `Sipariş oluşturuldu (ID: ${data?.data?.id || '—'})`);
-
-      // form reset (pickup'ı koruyoruz, dropoff sıfırlanır)
       (e.target as HTMLFormElement).reset?.();
       setCustomer(''); setPhone(''); setAddress(''); setDeliveryAddress('');
       setType('yerinde'); setCarrierType('kurye'); setVehicleType('2_teker_motosiklet');
@@ -233,7 +232,6 @@ export default function RestaurantOrderCreate() {
     <form onSubmit={submit} className="space-y-6">
       <h1 className="text-2xl font-semibold">Yeni Sipariş</h1>
 
-      {/* ID bilgi alanı (debug/farkındalık) */}
       <div className="text-xs text-neutral-600">
         {restaurantId ? <>restaurant_id: <b>{restaurantId}</b></> : <>{idErr}</>}
         {userId && <> • user_id: <b>{userId}</b></>}
@@ -313,36 +311,49 @@ export default function RestaurantOrderCreate() {
         </p>
       </section>
 
-      {/* Kalemler */}
+      {/* Kalemler: Ürün seç + adet (fiyat menüden otomatik) */}
       <section className="rounded-2xl border border-neutral-200/70 bg-white p-6 shadow-sm">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold">Kalemler</h2>
           <button type="button" onClick={addItem} className="rounded-lg border px-3 py-1.5 text-sm hover:bg-neutral-50">+ Ekle</button>
         </div>
 
+        {menuErr && <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{menuErr}</div>}
+        {menuLoading && <div className="mt-3 text-sm text-neutral-500">Menü yükleniyor…</div>}
+
         <div className="mt-3 grid gap-3">
           {items.map(it => (
-            <div key={it.id} className="grid gap-3 sm:grid-cols-[1fr,140px,140px,100px]">
-              <input
-                value={it.product_name}
-                onChange={e=>updateItem(it.id, { product_name: e.target.value })}
-                placeholder="Ürün adı"
+            <div key={it.id} className="grid gap-3 sm:grid-cols-[minmax(220px,1fr),140px,140px,100px]">
+              <select
+                value={it.menu_id || ''}
+                onChange={e => selectMenuForRow(it.id, e.target.value)}
                 className="rounded-xl border px-3 py-2"
-              />
+                required
+              >
+                <option value="">Ürün seçin…</option>
+                {menu.map((m: MenuItem) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name} — {Number(m.price).toFixed(2)}₺
+                  </option>
+                ))}
+              </select>
+
+              {/* Fiyat menüden gelir, düzenlenemez */}
               <input
-                type="number"
-                step="0.01"
-                value={it.price}
-                onChange={e=>updateItem(it.id, { price: Number(e.target.value) || 0 })}
-                className="rounded-xl border px-3 py-2 text-right"
+                value={it.price ? it.price.toFixed(2) : ''}
+                readOnly
+                placeholder="Fiyat"
+                className="rounded-xl border bg-neutral-50 px-3 py-2 text-right"
               />
+
               <input
                 type="number"
                 min={1}
                 value={it.quantity}
-                onChange={e=>updateItem(it.id, { quantity: Math.max(1, Number(e.target.value) || 1) })}
+                onChange={e=>changeQty(it.id, Number(e.target.value))}
                 className="rounded-xl border px-3 py-2 text-right"
               />
+
               <div className="flex items-center justify-between">
                 <strong className="tabular-nums">{((it.price||0)*(it.quantity||0)).toFixed(2)}₺</strong>
                 <button type="button" onClick={()=>removeItem(it.id)} className="rounded-md bg-rose-100 px-3 py-1.5 text-sm text-rose-700 hover:bg-rose-200">Sil</button>
