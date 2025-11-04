@@ -106,8 +106,8 @@ export default function DealerRestaurantListPage() {
         taxNumber: String(x?.taxNumber),
         phone: String(x?.phone),
         fullAddress: String(x?.fullAddress),
-        latitude: Number(x?.latitude ?? ""),
-        longitude: Number(x?.longitude ?? ""),
+        latitude: Number(x?.latitude ?? null),
+        longitude: Number(x?.longitude ?? null),
         openingHour: String(x?.openingHour ?? ""),
         closingHour: String(x?.closingHour ?? ""),
       }));
@@ -131,10 +131,10 @@ export default function DealerRestaurantListPage() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">
-            Yük Listesi (Bayi)
+            Restoran Listesi (Bayi)
           </h1>
           <p className="text-sm text-neutral-600">
-            Kendi oluşturduğun yükleri görüntüle, düzenle veya sil.
+            Bayi restoranlarını görüntüle, düzenle veya sil.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -168,7 +168,7 @@ export default function DealerRestaurantListPage() {
           </button>
         </div>
       </div>
-      
+
       {error && (
         <div className="rounded-md bg-rose-50 px-4 py-3 text-sm text-rose-700 whitespace-pre-line">
           {error}
