@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { useParams, useSearchParams } from 'next/navigation';
 import Modal from '@/components/UI/Modal';
 import { getAuthToken } from '@/utils/auth';
+import ChartPie from '@/components/chart/ChartPie';
 
 /** ======================== API TYPES ======================== **/
 type CourierFromApi = {
@@ -290,6 +291,8 @@ export default function AdminUserListPage() {
           <span className="rounded-lg border px-3 py-1.5 bg-white">Bayi: {totals.dealers}</span>
         </div>
       )}
+
+      <ChartPie name={rows.map(r => r.type)}></ChartPie>
 
       <section className="rounded-2xl border border-neutral-200/70 bg-white shadow-sm">
         <div className="grid gap-3 p-5 sm:p-6 sm:grid-cols-[1fr_auto]">
