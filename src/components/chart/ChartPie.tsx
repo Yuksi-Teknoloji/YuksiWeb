@@ -20,7 +20,7 @@ export default function ChartPie( { name }: { name:  string[] } ){
   ).map(([name, value]) => ({ name, value }));
 
   return(
-    <div className="w-full max-w-[500px] h-[300px] ml-auto">
+    <div className="w-full max-w-[500px] h-[300px]">
       <ResponsiveContainer width="100%" height="100%">
         <PieChart>
           <Pie
