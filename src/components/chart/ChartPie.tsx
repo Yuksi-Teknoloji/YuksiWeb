@@ -27,9 +27,6 @@ export default function ChartPie( { name }: { name:  string[] } ){
             data={chart_data}
             dataKey="value"
             nameKey="name"
-            cx="50%"
-            cy="50%"
-            outerRadius="80%"
             label={({ name, value }) => `${TypeTR[name] ?? name} - ${value}`}
           >
             {chart_data.map((_, i) => (
