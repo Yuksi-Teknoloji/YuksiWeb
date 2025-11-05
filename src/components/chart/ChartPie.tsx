@@ -1,6 +1,6 @@
 "use client";
 
-import { Cell, Pie, PieChart, ResponsiveContainer } from "recharts";
+import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 
 const COLORS = ["#EB75D9", "#EB8175", "#EB7593", "#CE75EB", "#DA91ED", "#525B57", "#DF5ADA", "#D95F7E"];  
 
@@ -26,13 +26,14 @@ export default function ChartPie( { name }: { name:  string[] } ){
           <Pie
             data={chart_data}
             dataKey="value"
-            nameKey="name"
+            nameKey={({ name, value }) => `${TypeTR[name] ?? name}`}
             label={({ name, value }) => `${TypeTR[name] ?? name} - ${value}`}
           >
             {chart_data.map((_, i) => (
               <Cell key={i} fill={COLORS[i % COLORS.length]} />
             ))}
           </Pie>
+          <Tooltip />
         </PieChart>
       </ResponsiveContainer>
     </div>
