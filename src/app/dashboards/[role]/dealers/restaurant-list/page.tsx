@@ -4,20 +4,15 @@
 import * as React from 'react';
 import dynamic from 'next/dynamic';
 import {
-  Plus,
-  Link as LinkIcon,
-  RefreshCcw,
-  Search,
-  Eye,
-  Trash2,
-  Loader2,
-  ChevronLeft,
-  ChevronRight,
+  Plus, Link as LinkIcon, RefreshCcw, Search, Eye, Trash2,
+  Loader2, ChevronLeft, ChevronRight, MapPin
 } from 'lucide-react';
 import { getAuthToken } from '@/utils/auth';
 
 /* ================= Map ================= */
 const MapPicker = dynamic(() => import('@/components/map/MapPicker'), { ssr: false });
+const LiveLeaflet = dynamic(() => import('@/components/map/LiveLeaflet'), { ssr: false });
+
 type GeoPoint = { lat: number; lng: number; address?: string };
 
 /* ================= Helpers ================= */
@@ -54,6 +49,29 @@ type RestaurantRow = {
   created_at?: string | null;
 };
 
+type ProfileResponse = {
+  id: string;
+  email?: string | null;
+  phone?: string | null;
+  name?: string | null;
+  contactPerson?: string | null;
+  taxNumber?: string | null;
+  addressLine1?: string | null;
+  addressLine2?: string | null;
+  fullAddress?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  openingHour?: string | null;
+  closingHour?: string | null;
+  createdAt?: string | null;
+  linkedAt?: string | null;
+  location?: {
+    cityId?: number | null; cityName?: string | null;
+    stateId?: number | null; stateName?: string | null;
+    countryId?: number | null; countryName?: string | null;
+  } | null;
+};
+
 type CreateRestaurantBody = {
   name: string;
   email: string;
@@ -61,7 +79,7 @@ type CreateRestaurantBody = {
   password: string;
   taxNumber: string;
   contactPerson: string;
-  addresLine1: string;         // (API’de bu şekilde)
+  addresLine1: string;
   addressLine2?: string;
   cityId: number;
   stateId: number;
@@ -89,11 +107,14 @@ export default function DealerRestaurantListPage() {
   const [offset, setOffset] = React.useState<number>(0);
   const [q, setQ] = React.useState('');
 
-  // Profile Drawer
+  // Profile Drawer / Marker info
   const [profileId, setProfileId] = React.useState<string | null>(null);
-  const [profileJson, setProfileJson] = React.useState<any>(null);
+  const [profileJson, setProfileJson] = React.useState<ProfileResponse | null>(null);
   const [profileLoading, setProfileLoading] = React.useState(false);
   const [profileErr, setProfileErr] = React.useState<string | null>(null);
+
+  // Harita seçili marker
+  const [selectedId, setSelectedId] = React.useState<string | null>(null);
 
   // ===== Create =====
   const [createOpen, setCreateOpen] = React.useState(false);
@@ -112,15 +133,12 @@ export default function DealerRestaurantListPage() {
   const [countries, setCountries]               = React.useState<Country[]>([]);
   const [countriesLoading, setCountriesLoading] = React.useState(false);
   const [countriesError, setCountriesError]     = React.useState<string | null>(null);
-
   const [states, setStates]               = React.useState<State[]>([]);
   const [statesLoading, setStatesLoading] = React.useState(false);
   const [statesError, setStatesError]     = React.useState<string | null>(null);
-
   const [cities, setCities]               = React.useState<City[]>([]);
   const [citiesLoading, setCitiesLoading] = React.useState(false);
   const [citiesError, setCitiesError]     = React.useState<string | null>(null);
-
   const [geo, setGeo] = React.useState<GeoPoint | null>(null);
 
   // Bind existing
@@ -182,7 +200,7 @@ export default function DealerRestaurantListPage() {
   const rowsFiltered = React.useMemo(() => {
     if (!q.trim()) return rows;
     const s = q.toLowerCase();
-    return rows.filter((r) =>
+    return rows.filter((r: RestaurantRow) =>
       r.name.toLowerCase().includes(s) ||
       (r.email ?? '').toLowerCase().includes(s) ||
       (r.phone ?? '').toLowerCase().includes(s) ||
@@ -190,6 +208,25 @@ export default function DealerRestaurantListPage() {
       (r.city_name ?? '').toLowerCase().includes(s)
     );
   }, [rows, q]);
+
+//Delete relationship
+  const unbind = React.useCallback(async (id: string) => {
+  if (typeof window !== 'undefined') {
+    const ok = window.confirm('Bu restoranın bayi bağlantısını kaldırmak istiyor musunuz? (Restoran silinmez)');
+    if (!ok) return;
+  }
+  setRemovingId(id);
+  try {
+    const res = await fetch(`/yuksi/dealer/restaurants/${id}`, { method: 'DELETE', headers });
+    const j: unknown = await readJson(res);
+    if (!res.ok || (j as any)?.success === false) throw new Error(msg(j, `HTTP ${res.status}`));
+    await load();
+  } catch (e: any) {
+    alert(e?.message || 'Bağlantı kaldırılamadı.');
+  } finally {
+    setRemovingId('');
+  }
+}, [headers, load]);
 
   /* ========== Profile fetch ========== */
   async function openProfile(id: string) {
@@ -201,7 +238,8 @@ export default function DealerRestaurantListPage() {
       const res = await fetch(`/yuksi/dealer/restaurants/${id}`, { cache: 'no-store', headers });
       const j: any = await readJson(res);
       if (!res.ok || j?.success === false) throw new Error(msg(j, `HTTP ${res.status}`));
-      setProfileJson(j?.data ?? j);
+      // j.data doğrudan ProfileResponse uyumlu
+      setProfileJson((j?.data ?? j) as ProfileResponse);
     } catch (e: any) {
       setProfileErr(e?.message || 'Profil getirilemedi.');
     } finally {
@@ -209,7 +247,7 @@ export default function DealerRestaurantListPage() {
     }
   }
 
-  /* ========== GEO lists ========== */
+  /* ========== GEO lists (create) ========== */
   React.useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -221,8 +259,8 @@ export default function DealerRestaurantListPage() {
         const data: any = await readJson(res);
         if (!res.ok) throw new Error(msg(data, `HTTP ${res.status}`));
         const list: any[] = Array.isArray(data) ? data : Array.isArray(data?.data) ? data.data : [];
-        const mapped: Country[] = list.map((c) => ({ id: Number(c?.id), name: String(c?.name ?? '') }))
-                                      .filter(c => Number.isFinite(c.id) && c.name);
+        const mapped: Country[] = list.map((c: any) => ({ id: Number(c?.id), name: String(c?.name ?? '') }))
+                                      .filter((c: Country) => Number.isFinite(c.id) && c.name);
         if (!cancelled) setCountries(mapped);
       } catch (e: any) {
         if (!cancelled) setCountriesError(e?.message || 'Ülke listesi alınamadı.');
@@ -245,8 +283,8 @@ export default function DealerRestaurantListPage() {
         const data: any = await readJson(res);
         if (!res.ok) throw new Error(msg(data, `HTTP ${res.status}`));
         const list: any[] = Array.isArray(data) ? data : Array.isArray(data?.data) ? data.data : [];
-        const mapped: State[] = list.map((s) => ({ id: Number(s?.id), name: String(s?.name ?? '') }))
-                                    .filter((s) => Number.isFinite(s.id) && s.name);
+        const mapped: State[] = list.map((s: any) => ({ id: Number(s?.id), name: String(s?.name ?? '') }))
+                                    .filter((s: State) => Number.isFinite(s.id) && s.name);
         if (!cancelled) setStates(mapped);
       } catch (e: any) {
         if (!cancelled) setStatesError(e?.message || 'Eyalet/İl listesi alınamadı.');
@@ -269,8 +307,8 @@ export default function DealerRestaurantListPage() {
         const data: any = await readJson(res);
         if (!res.ok) throw new Error(msg(data, `HTTP ${res.status}`));
         const list: any[] = Array.isArray(data) ? data : Array.isArray(data?.data) ? data.data : [];
-        const mapped: City[] = list.map((c) => ({ id: Number(c?.id), name: String(c?.name ?? '') }))
-                                   .filter((c) => Number.isFinite(c.id) && c.name);
+        const mapped: City[] = list.map((c: any) => ({ id: Number(c?.id), name: String(c?.name ?? '') }))
+                                   .filter((c: City) => Number.isFinite(c.id) && c.name);
         if (!cancelled) setCities(mapped);
       } catch (e: any) {
         if (!cancelled) setCitiesError(e?.message || 'Şehir listesi alınamadı.');
@@ -330,7 +368,7 @@ export default function DealerRestaurantListPage() {
         name: String(r?.name ?? '—'),
         email: r?.email ?? null,
         phone: r?.phone ?? null,
-      })).filter((x:RestaurantRow) => x.id);
+      })).filter((x: AllRestaurantOption) => x.id);
       setAllRestaurants(mapped);
     } catch (e: any) {
       setAllRestaurants([]);
@@ -340,14 +378,13 @@ export default function DealerRestaurantListPage() {
     }
   }, [headers]);
 
-  // İlk açılışta ve "Yeni Restoran" paneli açıldığında hazır olsun
   React.useEffect(() => { fetchAllRestaurants(); }, [fetchAllRestaurants]);
   React.useEffect(() => { if (createOpen) fetchAllRestaurants(); }, [createOpen, fetchAllRestaurants]);
 
   const allFiltered = React.useMemo(() => {
     const s = allFilter.trim().toLowerCase();
     if (!s) return allRestaurants;
-    return allRestaurants.filter((r) =>
+    return allRestaurants.filter((r: AllRestaurantOption) =>
       r.name.toLowerCase().includes(s) ||
       (r.email ?? '').toLowerCase().includes(s) ||
       (r.phone ?? '').toLowerCase().includes(s) ||
@@ -380,21 +417,30 @@ export default function DealerRestaurantListPage() {
     }
   }
 
-  /* ========== Unbind ========== */
-  async function unbind(id: string) {
-    if (!confirm('Bu restoranın bayi bağlantısını kaldırmak istiyor musunuz? (Restoran silinmez)')) return;
-    setRemovingId(id);
-    try {
-      const res = await fetch(`/yuksi/dealer/restaurants/${id}`, { method: 'DELETE', headers });
-      const j: any = await readJson(res);
-      if (!res.ok || j?.success === false) throw new Error(msg(j, `HTTP ${res.status}`));
-      await load();
-    } catch (e: any) {
-      alert(e?.message || 'Bağlantı kaldırılamadı.');
-    } finally {
-      setRemovingId('');
-    }
+  /* ====== Harita marker listesi ====== */
+  type LeafletMarker = { id: string; name: string; phone: string; lat: number; lng: number };
+  const markers: LeafletMarker[] = React.useMemo(() => {
+    return rowsFiltered
+      .filter((r: RestaurantRow) => typeof r.latitude === 'number' && typeof r.longitude === 'number')
+      .map((r: RestaurantRow): LeafletMarker => ({
+        id: r.id,
+        name: r.name,
+        phone: r.phone || '',
+        lat: Number(r.latitude as number),
+        lng: Number(r.longitude as number),
+      }));
+  }, [rowsFiltered]);
+
+  // marker tıklanınca panel + profil yükleme
+  function handleSelectMarker(id: string) {
+    setSelectedId(id);
+    openProfile(id); // ayrıntıyı getir
   }
+
+  const selectedFromList: RestaurantRow | undefined = React.useMemo(
+    () => rows.find((r: RestaurantRow) => r.id === (selectedId || profileId)),
+    [rows, selectedId, profileId]
+  );
 
   /* ========== UI ========== */
   return (
@@ -437,6 +483,71 @@ export default function DealerRestaurantListPage() {
         </div>
       )}
 
+      {/* === HARİTA + DETAY PANELİ === */}
+      <section className="mt-6 rounded-2xl border border-neutral-200/70 bg-white shadow-sm">
+        <div className="flex items-center gap-2 border-b px-4 py-3">
+          <MapPin className="h-4 w-4" />
+          <div className="font-semibold">Harita</div>
+          <span className="ml-2 text-xs text-neutral-500">({markers.length} konum)</span>
+        </div>
+
+        <div className="grid gap-0 lg:grid-cols-[1fr,380px]">
+          <div className="p-3">
+            <LiveLeaflet
+              markers={markers}
+              selectedId={selectedId}
+              onSelect={handleSelectMarker}
+            />
+          </div>
+
+          <aside className="border-t lg:border-l lg:border-t-0">
+            <div className="p-4">
+              <div className="mb-2 font-semibold">Seçili Restoran</div>
+
+              {!selectedId && <div className="text-sm text-neutral-500">Haritadaki bir işarete tıklayın.</div>}
+
+              {selectedId && (
+                <>
+                  {/* hızlı bilgi listeden */}
+                  <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-3 text-sm">
+                    <div className="font-medium">{selectedFromList?.name ?? '—'}</div>
+                    <div className="mt-1 grid gap-1 text-[13px]">
+                      <div>E-posta: <b>{selectedFromList?.email ?? '—'}</b></div>
+                      <div>Telefon: <b>{selectedFromList?.phone ?? '—'}</b></div>
+                      <div>Adres: <b>{selectedFromList?.address_line1 ?? '—'}</b></div>
+                      <div>Konum: <b>{(selectedFromList?.latitude ?? '—')}, {(selectedFromList?.longitude ?? '—')}</b></div>
+                    </div>
+                  </div>
+
+                  {/* API’den ayrıntı */}
+                  <div className="mt-3 rounded-xl border border-neutral-200 p-3 text-sm">
+                    {profileLoading && <div className="text-neutral-500"><Loader2 className="mr-1 inline h-4 w-4 animate-spin" /> Ayrıntılar yükleniyor…</div>}
+                    {profileErr && <div className="text-rose-700">{profileErr}</div>}
+                    {!profileLoading && !profileErr && profileJson && (
+                      <div className="grid gap-1">
+                        <div>Tam Adres: <b>{profileJson.fullAddress ?? profileJson.addressLine1 ?? '—'}</b></div>
+                        <div>Saat: <b>{profileJson.openingHour ?? '—'} / {profileJson.closingHour ?? '—'}</b></div>
+                        <div>Şehir/Ülke: <b>{profileJson.location?.cityName ?? '—'} / {profileJson.location?.countryName ?? '—'}</b></div>
+                        <div>Oluşturma: <b>{fmtDT(profileJson.createdAt ?? null)}</b></div>
+                        <div>Bağlanma: <b>{fmtDT(profileJson.linkedAt ?? null)}</b></div>
+                      </div>
+                    )}
+                    <div className="mt-2">
+                      <button
+                        onClick={() => openProfile(selectedId)}
+                        className="inline-flex items-center gap-2 rounded-lg border border-neutral-300 bg-white px-3 py-1.5 text-xs hover:bg-neutral-50"
+                      >
+                        <Eye className="h-4 w-4" /> Ayrıntıları Yeniden Getir
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          </aside>
+        </div>
+      </section>
+
       {/* Create & Bind */}
       {createOpen && (
         <div className="grid gap-6 lg:grid-cols-2">
@@ -478,21 +589,21 @@ export default function DealerRestaurantListPage() {
                   <select value={form.countryId} onChange={(e)=>setForm(f=>({...f,countryId:Number(e.target.value)}))} className="rounded-lg border border-neutral-300 px-3 py-2">
                     <option value="">{countriesLoading?'Yükleniyor…':'Ülke seçin…'}</option>
                     {countriesError && <option value="">{countriesError}</option>}
-                    {!countriesLoading && !countriesError && countries.map(c=> <option key={c.id} value={c.id}>{c.name}</option>)}
+                    {!countriesLoading && !countriesError && countries.map((c: Country)=> <option key={c.id} value={c.id}>{c.name}</option>)}
                   </select>
                 </label>
                 <label className="grid gap-1"><span>İl / State *</span>
                   <select value={form.stateId||''} onChange={(e)=>setForm(f=>({...f,stateId:Number(e.target.value)}))} disabled={!form.countryId||statesLoading} className="rounded-lg border border-neutral-300 px-3 py-2 disabled:opacity-60">
                     <option value="">{statesLoading?'Yükleniyor…':(form.countryId?'İl seçin…':'Önce ülke')}</option>
                     {statesError && <option value="">{statesError}</option>}
-                    {!statesLoading && !statesError && states.map(s=> <option key={s.id} value={s.id}>{s.name}</option>)}
+                    {!statesLoading && !statesError && states.map((s: State)=> <option key={s.id} value={s.id}>{s.name}</option>)}
                   </select>
                 </label>
                 <label className="grid gap-1"><span>Şehir *</span>
                   <select value={form.cityId||''} onChange={(e)=>setForm(f=>({...f,cityId:Number(e.target.value)}))} disabled={!form.stateId||citiesLoading} className="rounded-lg border border-neutral-300 px-3 py-2 disabled:opacity-60">
                     <option value="">{citiesLoading?'Yükleniyor…':(form.stateId?'Şehir seçin…':'Önce il')}</option>
                     {citiesError && <option value="">{citiesError}</option>}
-                    {!citiesLoading && !citiesError && cities.map(c=> <option key={c.id} value={c.id}>{c.name}</option>)}
+                    {!citiesLoading && !citiesError && cities.map((c: City)=> <option key={c.id} value={c.id}>{c.name}</option>)}
                   </select>
                 </label>
               </div>
@@ -551,7 +662,7 @@ export default function DealerRestaurantListPage() {
                   >
                     <option value="">{allLoading ? 'Yükleniyor…' : 'Seçin…'}</option>
                     {allErr && <option value="">{allErr}</option>}
-                    {!allLoading && !allErr && allFiltered.map((r) => (
+                    {!allLoading && !allErr && allFiltered.map((r: AllRestaurantOption) => (
                       <option key={r.id} value={r.id}>
                         {r.name} {r.email ? `• ${r.email}` : ''} {r.phone ? `• ${r.phone}` : ''} • {r.id}
                       </option>
@@ -611,7 +722,7 @@ export default function DealerRestaurantListPage() {
                 <ChevronRight className="h-4 w-4" />
               </button>
               <select value={limit} onChange={(e) => { setOffset(0); setLimit(Number(e.target.value)); }} className="rounded-lg border border-neutral-300 bg-white px-2 py-1.5 text-sm" title="Sayfa boyutu">
-                {[10, 20, 50, 100, 200].map((n) => <option key={n} value={n}>{n}</option>)}
+                {[10, 20, 50, 100, 200].map((n: number) => <option key={n} value={n}>{n}</option>)}
               </select>
             </div>
           </div>
@@ -652,6 +763,9 @@ export default function DealerRestaurantListPage() {
                   <td className="px-4 py-2">{fmtDT(r.created_at)}</td>
                   <td className="px-4 py-2">
                     <div className="flex flex-wrap items-center gap-2">
+                      <button onClick={() => { setSelectedId(r.id); openProfile(r.id);} } className="inline-flex items-center gap-2 rounded-lg border border-neutral-300 bg-white px-3 py-1.5 text-xs hover:bg-neutral-50" title="Haritada/Panelde Gör">
+                        <MapPin className="h-4 w-4" /> Haritada
+                      </button>
                       <button onClick={() => openProfile(r.id)} className="inline-flex items-center gap-2 rounded-lg border border-neutral-300 bg-white px-3 py-1.5 text-xs hover:bg-neutral-50" title="Profili Gör">
                         <Eye className="h-4 w-4" /> Gör
                       </button>
@@ -680,9 +794,9 @@ export default function DealerRestaurantListPage() {
         {error && <div className="m-4 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div>}
       </section>
 
-      {/* Profile Modal */}
+      {/* Profile Modal (ham JSON görüntüsü) */}
       {profileId && (
-        <div className="fixed inset-0 z-40 grid place-items-center bg-black/40 p-4" onClick={() => setProfileId(null)}>
+        <div className="fixed inset-0 z-[2000] grid place-items-center bg-black/40 p-4" onClick={() => setProfileId(null)}>
           <div className="max-h-[80vh] w-full max-w-3xl overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between border-b px-4 py-3">
               <div className="font-semibold">Restoran Profili</div>

@@ -1,311 +1,196 @@
 'use client';
 
 import * as React from 'react';
+import { RefreshCcw, Loader2 } from 'lucide-react';
+import { getAuthToken } from '@/utils/auth';
 
-// --- Tipler ---
-type TransportPackage = {
-  id: string;
-  carrier: string;     // Paket/Hizmet Adı
-  days: number;        // Gün
-  price: number;       // ₺
+/* ================= Helpers ================= */
+type HeadersDict = HeadersInit;
+const bearerHeaders = (token?: string | null): HeadersDict => {
+  const h: HeadersDict = { Accept: 'application/json' };
+  if (token) (h as any).Authorization = `Bearer ${token}`;
+  return h;
+};
+async function readJson<T = any>(res: Response): Promise<T> {
+  const t = await res.text();
+  try { return t ? JSON.parse(t) : (null as any); } catch { return (t as any); }
+}
+const msg = (d: any, fb: string) => d?.message || d?.detail || d?.title || fb;
+const fmtDT = (iso?: string | null) => (iso ? new Date(iso).toLocaleString('tr-TR') : '—');
+
+/* ================= API Types ================= */
+/** Swagger örneğindeki response alanları */
+type SubscriptionDTO = {
+  subscriptionId: string;
+  courierId: string;
+  packageId: string;
+
+  startDate?: string | null;   // ISO
+  endDate?: string | null;     // ISO
+  createdAt?: string | null;   // ISO
+
+  isActive: boolean;
+
+  packageName?: string | null;
+  packageDescription?: string | null;
+  packagePrice?: number | null;
+  packageDurationDays?: number | null;
+
+  courierFirstName?: string | null;
+  courierLastName?: string | null;
+  courierPhone?: string | null;
 };
 
-type PaymentRow = {
-  id: string;
-  date: string;
-  carrier: string;
-  days: number;
-  price: number;
-  status: 'success' | 'failed' | 'pending';
-};
+/* ================= Page ================= */
+export default function AdminTransportPackagesPage() {
+  const token = React.useMemo(getAuthToken, []);
+  const headers = React.useMemo<HeadersDict>(() => bearerHeaders(token), [token]);
 
-// --- Başlangıç verisi ---
-const initialPackages: TransportPackage[] = [
-  { id: 'tp-1', carrier: 'Aylık paket', days: 30, price: 5300 },
-];
+  const [rows, setRows] = React.useState<SubscriptionDTO[]>([]);
+  const [loading, setLoading] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
-const initialPayments: PaymentRow[] = [
-  {
-    id: 'pm-1',
-    date: '20.09.2025 20:09',
-    carrier: 'emre kuzey\n5319677149\n06ank06',
-    days: 30,
-    price: 5300,
-    status: 'failed',
-  },
-];
+  const [limit, setLimit] = React.useState<number | ''>('');
+  const [offset, setOffset] = React.useState<number | ''>(0);
 
-export default function TransportPackagesPage() {
-  const [rows, setRows] = React.useState<TransportPackage[]>(initialPackages);
-  const [payments] = React.useState<PaymentRow[]>(initialPayments);
-  const [open, setOpen] = React.useState(false);
+  const load = React.useCallback(async () => {
+    setLoading(true); setError(null);
+    try {
+      const qs = new URLSearchParams();
+      if (limit !== '') qs.set('limit', String(limit));
+      if (offset !== '') qs.set('offset', String(offset));
 
-  // Modal kaydet
-  function handleCreate(item: Omit<TransportPackage, 'id'>) {
-    setRows(prev => [{ id: crypto.randomUUID(), ...item }, ...prev]);
-    setOpen(false);
-  }
+      // Proxy: /yuksi/...
+      const res = await fetch(`/yuksi/courier/package-subscriptions?${qs.toString()}`, {
+        headers,
+        cache: 'no-store',
+      });
+      const j: any = await readJson(res);
+      if (!res.ok || j?.success === false) throw new Error(msg(j, `HTTP ${res.status}`));
 
-  const handleDelete = (id: string) => {
-    setRows(prev => prev.filter(r => r.id !== id));
-  };
+      const list: SubscriptionDTO[] = Array.isArray(j?.data) ? j.data : [];
+      setRows(list);
+    } catch (e: any) {
+      setRows([]);
+      setError(e?.message || 'Abonelikler getirilemedi.');
+    } finally {
+      setLoading(false);
+    }
+  }, [headers, limit, offset]);
 
-  const handleEdit = (id: string) => {
-    const r = rows.find(x => x.id === id);
-    if (!r) return;
-
-    const newCarrier = prompt('Paket / Hizmet Adı', r.carrier) ?? r.carrier;
-    const newDaysStr = prompt('Süre (gün)', String(r.days)) ?? String(r.days);
-    const newPriceStr = prompt('Fiyat (₺)', String(r.price)) ?? String(r.price);
-
-    const newDays = Math.max(0, Number(newDaysStr) || 0);
-    const newPrice = Math.max(0, Number(newPriceStr) || 0);
-
-    setRows(prev =>
-      prev.map(x =>
-        x.id === id ? { ...x, carrier: newCarrier, days: newDays, price: newPrice } : x,
-      ),
-    );
-  };
+  React.useEffect(() => { load(); }, [load]);
 
   return (
     <div className="space-y-6">
-      {/* Başlık */}
-      <div className="px-2 sm:px-0">
-        <h1 className="text-2xl font-semibold tracking-tight">Ürünler</h1>
-      </div>
-
-      {/* KART 1: Taşıyıcı Paketleri */}
-      <section className="rounded-2xl border border-neutral-200/70 bg-white shadow-sm">
-        {/* Üst şerit */}
-        <div className="flex items-center justify-between p-5 sm:p-6">
+      {/* Header */}
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Kurye Paket Ödemeleri</h1>
+          <p className="text-sm text-neutral-600">
+            Tüm kurye paket abonelikleri ve ödeme durumları.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <input
+            type="number"
+            min={1}
+            className="w-28 rounded-lg border border-neutral-300 bg-white px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-sky-200"
+            value={limit}
+            onChange={(e) => setLimit(e.target.value === '' ? '' : Number(e.target.value))}
+            placeholder="limit"
+            title="limit"
+          />
+          <input
+            type="number"
+            min={0}
+            className="w-28 rounded-lg border border-neutral-300 bg-white px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-sky-200"
+            value={offset}
+            onChange={(e) => setOffset(e.target.value === '' ? '' : Number(e.target.value))}
+            placeholder="offset"
+            title="offset"
+          />
           <button
-            onClick={() => setOpen(true)}
-            className="btn-accent rounded-2xl bg-orange-500 text-white px-4 py-2 text-sm font-medium shadow-sm transition active:translate-y-px"
+            onClick={load}
+            className="inline-flex items-center gap-2 rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm hover:bg-neutral-50"
           >
-            Yeni Paket Ekle
+            <RefreshCcw className="h-4 w-4" /> Yenile
           </button>
         </div>
+      </div>
 
-        <div className="h-px w-full bg-neutral-200/70" />
-
-        {/* Tablo */}
-        <div className="overflow-x-auto">
-          <table className="min-w-full table-fixed">
-            <thead>
-              <tr className="text-left text-sm text-neutral-500">
-                <th className="px-6 py-3 font-medium">Taşıyıcı</th>
-                <th className="w-64 px-6 py-3 font-medium">Talep Edilen Hizmet</th>
-                <th className="w-40 px-6 py-3 font-medium">Fiyat</th>
-                <th className="w-44 px-6 py-3" />
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map(r => (
-                <tr key={r.id} className="border-t border-neutral-200/70 align-middle">
-                  <td className="px-6 py-4">
-                    <span className="font-semibold text-neutral-900">{r.carrier}</span>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className="font-semibold text-neutral-900">{r.days}</span>
-                  </td>
-                  <td className="px-6 py-4 text-neutral-900 font-semibold">{r.price}</td>
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => handleDelete(r.id)}
-                        className="rounded-md bg-red-500 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-red-600 active:translate-y-px"
-                      >
-                        Sil
-                      </button>
-                      <button
-                        onClick={() => handleEdit(r.id)}
-                        className="rounded-md bg-green-500 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-green-600 active:translate-y-px"
-                      >
-                        Düzenle
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-
-              {rows.length === 0 && (
-                <tr>
-                  <td colSpan={4} className="px-6 py-12 text-center text-sm text-neutral-500">
-                    Henüz paket yok. Üstten <strong>“Yeni Paket Ekle”</strong> ile ekleyebilirsin.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+      {error && (
+        <div className="rounded-md bg-rose-50 px-4 py-3 text-sm text-rose-700">
+          {error}
         </div>
-
-        {/* Altta mor progress görseli */}
-        <div className="px-5 pb-5">
-          <div className="h-2 rounded-full bg-purple-200/60">
-            <div className="h-2 w-40 rounded-full bg-purple-400/60" />
-          </div>
-        </div>
-      </section>
-
-      {/* KART 2: Ödemeler (değiştirilmedi) */}
-      <section className="rounded-2xl border border-neutral-200/70 bg-white shadow-sm">
-        <header className="p-5 sm:p-6">
-          <h2 className="text-2xl font-semibold tracking-tight">Ödemeler</h2>
-        </header>
-
-        <div className="h-px w-full bg-neutral-200/70" />
-
-        <div className="overflow-x-auto">
-          <table className="min-w-full table-fixed">
-            <thead>
-              <tr className="text-left text-sm text-neutral-500">
-                <th className="w-56 px-6 py-3 font-medium">Tarih</th>
-                <th className="px-6 py-3 font-medium">Taşıyıcı</th>
-                <th className="w-40 px-6 py-3 font-medium">Talep Edilen Gün</th>
-                <th className="w-40 px-6 py-3 font-medium">Fiyat</th>
-                <th className="w-44 px-6 py-3" />
-              </tr>
-            </thead>
-            <tbody>
-              {initialPayments.map(p => (
-                <tr key={p.id} className="border-t border-neutral-200/70 align-top">
-                  <td className="px-6 py-4 whitespace-nowrap font-medium text-neutral-900">{p.date}</td>
-                  <td className="px-6 py-4 whitespace-pre-line text-neutral-900">{p.carrier}</td>
-                  <td className="px-6 py-4 text-neutral-900">{p.days} gün</td>
-                  <td className="px-6 py-4 font-semibold text-neutral-900">{p.price} ₺</td>
-                  <td className="px-6 py-4">
-                    {p.status === 'failed' ? (
-                      <span className="inline-flex items-center rounded-md bg-red-500 px-3 py-2 text-sm font-semibold text-white shadow-sm">
-                        Başarısız Ödeme
-                      </span>
-                    ) : p.status === 'pending' ? (
-                      <span className="inline-flex items-center rounded-md bg-amber-500 px-3 py-2 text-sm font-semibold text-white shadow-sm">
-                        Beklemede
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center rounded-md bg-emerald-500 px-3 py-2 text-sm font-semibold text-white shadow-sm">
-                        Başarılı
-                      </span>
-                    )}
-                  </td>
-                </tr>
-              ))}
-
-              {initialPayments.length === 0 && (
-                <tr>
-                  <td colSpan={5} className="px-6 py-12 text-center text-sm text-neutral-500">
-                    Henüz ödeme kaydı yok.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      {open && (
-        <AddPackageModal
-          onClose={() => setOpen(false)}
-          onCreate={handleCreate}
-        />
       )}
-    </div>
-  );
-}
 
-/* ---------------- Modal: Yeni Paket Ekle ---------------- */
-
-function AddPackageModal({
-  onClose,
-  onCreate,
-}: {
-  onClose: () => void;
-  onCreate: (item: Omit<TransportPackage, 'id'>) => void;
-}) {
-  const [title, setTitle] = React.useState('');
-  const [days, setDays] = React.useState<string>('');    // input raw
-  const [price, setPrice] = React.useState<string>('');  // input raw
-
-  const canSave = title.trim() !== '' && days !== '' && price !== '';
-
-  function submit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!canSave) return;
-    onCreate({
-      carrier: title.trim(),
-      days: Math.max(0, Number(days) || 0),
-      price: Math.max(0, Number(price) || 0),
-    });
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4" role="dialog" aria-modal="true">
-      <div className="w-full max-w-4xl rounded-2xl bg-white shadow-xl">
-        {/* Header */}
-        <div className="flex items-center justify-between border-b px-5 py-4">
-          <h3 className="text-2xl font-semibold">Yeni Ürün ekle</h3>
-          <button
-            className="rounded-full p-2 hover:bg-neutral-100"
-            onClick={onClose}
-            aria-label="Kapat"
-          >
-            ✕
-          </button>
+      {/* Table */}
+      <section className="rounded-2xl border border-neutral-200 bg-white shadow-sm">
+        <div className="overflow-x-auto">
+          <table className="min-w-full table-fixed">
+            <thead>
+              <tr className="text-left text-xs text-neutral-500">
+                <th className="px-6 py-3 font-medium">Kurye</th>
+                <th className="px-6 py-3 font-medium">Telefon</th>
+                <th className="px-6 py-3 font-medium">Paket</th>
+                <th className="px-6 py-3 font-medium">Açıklama</th>
+                <th className="px-6 py-3 font-medium">Fiyat</th>
+                <th className="px-6 py-3 font-medium">Süre (gün)</th>
+                <th className="px-6 py-3 font-medium">Başlangıç</th>
+                <th className="px-6 py-3 font-medium">Bitiş</th>
+                <th className="px-6 py-3 font-medium">Oluşturma</th>
+                <th className="px-6 py-3 font-medium">Ödeme</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => {
+                const fullName = [r.courierFirstName, r.courierLastName].filter(Boolean).join(' ') || '—';
+                const ok = Boolean(r.isActive);
+                return (
+                  <tr key={r.subscriptionId} className="border-t text-sm">
+                    <td className="px-6 py-3">{fullName}</td>
+                    <td className="px-6 py-3">{r.courierPhone || '—'}</td>
+                    <td className="px-6 py-3">{r.packageName || '—'}</td>
+                    <td className="px-6 py-3">
+                      <span className="line-clamp-2">{r.packageDescription || '—'}</span>
+                    </td>
+                    <td className="px-6 py-3">{r.packagePrice != null ? `${r.packagePrice}₺` : '—'}</td>
+                    <td className="px-6 py-3">{r.packageDurationDays ?? '—'}</td>
+                    <td className="px-6 py-3">{fmtDT(r.startDate)}</td>
+                    <td className="px-6 py-3">{fmtDT(r.endDate)}</td>
+                    <td className="px-6 py-3">{fmtDT(r.createdAt)}</td>
+                    <td className="px-6 py-3">
+                      <span
+                        className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${
+                          ok
+                            ? 'bg-emerald-100 text-emerald-700 border border-emerald-200'
+                            : 'bg-rose-100 text-rose-700 border border-rose-200'
+                        }`}
+                        title={ok ? 'isActive: true' : 'isActive: false'}
+                      >
+                        {ok ? 'Ödeme Başarılı' : 'Ödeme Başarısız'}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
+              {!loading && rows.length === 0 && (
+                <tr>
+                  <td colSpan={10} className="px-6 py-10 text-center text-sm text-neutral-500">
+                    Kayıt bulunamadı.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
 
-        {/* Body */}
-        <form onSubmit={submit} className="space-y-4 p-5">
-          <div>
-            <label className="mb-1 block text-sm font-medium text-neutral-700">Hizmet Adı</label>
-            <input
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 text-neutral-800 outline-none ring-2 ring-transparent transition focus:border-neutral-300 focus:ring-sky-200"
-            />
+        {loading && (
+          <div className="flex items-center gap-2 px-6 py-3 text-sm text-neutral-600">
+            <Loader2 className="h-4 w-4 animate-spin" /> Yükleniyor…
           </div>
-
-          <div>
-            <label className="mb-1 block text-sm font-medium text-neutral-700">Süre / gün</label>
-            <input
-              type="number"
-              inputMode="numeric"
-              value={days}
-              onChange={(e) => setDays(e.target.value)}
-              className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 text-neutral-800 outline-none ring-2 ring-transparent transition focus:border-neutral-300 focus:ring-sky-200"
-            />
-          </div>
-
-          <div>
-            <label className="mb-1 block text-sm font-medium text-neutral-700">Fiyat</label>
-            <input
-              type="number"
-              inputMode="decimal"
-              value={price}
-              onChange={(e) => setPrice(e.target.value)}
-              className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 text-neutral-800 outline-none ring-2 ring-transparent transition focus:border-neutral-300 focus:ring-sky-200"
-            />
-          </div>
-
-          {/* Footer */}
-          <div className="mt-6 flex items-center justify-end gap-3">
-            <button
-              type="submit"
-              disabled={!canSave}
-              className="rounded-xl bg-emerald-500 px-6 py-2 text-sm font-semibold text-white shadow hover:bg-emerald-600 disabled:opacity-50"
-            >
-              Kaydet
-            </button>
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-xl bg-rose-100 px-6 py-2 text-sm font-semibold text-rose-600 hover:bg-rose-200"
-            >
-              İptal
-            </button>
-          </div>
-        </form>
-      </div>
+        )}
+      </section>
     </div>
   );
 }

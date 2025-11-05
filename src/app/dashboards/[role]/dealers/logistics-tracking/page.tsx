@@ -2,35 +2,29 @@
 'use client';
 
 import * as React from 'react';
+import 'leaflet/dist/leaflet.css';
+import { MapContainer, TileLayer, CircleMarker, Polyline, Tooltip, useMap } from 'react-leaflet';
 import { getAuthToken } from '@/utils/auth';
 
 /* ================= Helpers ================= */
 async function readJson<T = any>(res: Response): Promise<T> {
   const txt = await res.text();
-  try {
-    return txt ? JSON.parse(txt) : (null as any);
-  } catch {
-    return (txt as any);
-  }
+  try { return txt ? JSON.parse(txt) : (null as any); } catch { return (txt as any); }
 }
-const pickMsg = (d: any, fb: string) =>
-  d?.message || d?.detail || d?.title || fb;
-
+const pickMsg = (d: any, fb: string) => d?.message || d?.detail || d?.title || fb;
 function collectErrors(x: any): string {
   const msgs: string[] = [];
   if (!x) return '';
   if (x?.message) msgs.push(String(x.message));
   if (x?.data?.message) msgs.push(String(x.data.message));
   const err = x?.errors || x?.error || x?.detail;
-
   if (Array.isArray(err)) {
     for (const it of err) {
       if (typeof it === 'string') msgs.push(it);
       else if (it && typeof it === 'object') {
         const loc = Array.isArray((it as any).loc) ? (it as any).loc.join('.') : (it as any).loc ?? '';
         const m = (it as any).msg || (it as any).message || (it as any).detail;
-        if (loc && m) msgs.push(`${loc}: ${m}`);
-        else if (m) msgs.push(String(m));
+        if (loc && m) msgs.push(`${loc}: ${m}`); else if (m) msgs.push(String(m));
       }
     }
   } else if (err && typeof err === 'object') {
@@ -41,40 +35,32 @@ function collectErrors(x: any): string {
   }
   return msgs.join('\n');
 }
-
 const fmtDT = (iso?: string) => (iso ? new Date(iso).toLocaleString('tr-TR') : '—');
 
 /* ================= Types ================= */
 type DealerJob = {
   id: string;
-
   deliveryType: 'immediate' | 'scheduled';
   carrierType: string;
   vehicleType: string;
-
   pickupAddress: string;
   dropoffAddress: string;
-
   specialNotes?: string;
-
   totalPrice?: number;
   paymentMethod?: 'cash' | 'card' | 'transfer';
-
   createdAt?: string;
   imageFileIds?: string[];
-
-  deliveryDate?: string | null; // "DD.MM.YYYY" (only for scheduled)
-  deliveryTime?: string | null; // "HH:mm"     (only for scheduled)
+  deliveryDate?: string | null;
+  deliveryTime?: string | null;
 };
+
+type LatLng = { lat: number; lng: number };
 
 /* ================= Page ================= */
 export default function DealerLogisticsTrackingPage() {
   const token = React.useMemo(getAuthToken, []);
   const headers: HeadersInit = React.useMemo(
-    () => ({
-      Accept: 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    }),
+    () => ({ Accept: 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }),
     [token]
   );
 
@@ -92,41 +78,36 @@ export default function DealerLogisticsTrackingPage() {
   const [editing, setEditing] = React.useState<DealerJob | null>(null);
   const [busyId, setBusyId] = React.useState<string | null>(null);
 
+  // route modal
+  const [routeOpen, setRouteOpen] = React.useState(false);
+  const [routeFor, setRouteFor] = React.useState<DealerJob | null>(null);
+  const [routeLoading, setRouteLoading] = React.useState(false);
+  const [start, setStart] = React.useState<LatLng | null>(null);
+  const [end, setEnd] = React.useState<LatLng | null>(null);
+  const [routeErr, setRouteErr] = React.useState<string | null>(null);
+
   async function loadList() {
-    setLoading(true);
-    setError(null);
+    setLoading(true); setError(null);
     try {
       const qs = new URLSearchParams();
       if (limit !== '') qs.set('limit', String(limit));
       if (offset !== '') qs.set('offset', String(offset));
-
-      const res = await fetch(`/yuksi/dealer/jobs?${qs.toString()}`, {
-        headers,
-        cache: 'no-store',
-      });
+      const res = await fetch(`/yuksi/dealer/jobs?${qs.toString()}`, { headers, cache: 'no-store' });
       const j: any = await readJson(res);
-      if (!res.ok || j?.success === false)
-        throw new Error(pickMsg(j, `HTTP ${res.status}`));
-
+      if (!res.ok || j?.success === false) throw new Error(pickMsg(j, `HTTP ${res.status}`));
       const list = Array.isArray(j?.data) ? j.data : [];
       const mapped: DealerJob[] = list.map((x: any) => ({
         id: String(x?.id),
-
         deliveryType: x?.deliveryType === 'scheduled' ? 'scheduled' : 'immediate',
         carrierType: String(x?.carrierType ?? ''),
         vehicleType: String(x?.vehicleType ?? ''),
-
         pickupAddress: String(x?.pickupAddress ?? ''),
         dropoffAddress: String(x?.dropoffAddress ?? ''),
-
         specialNotes: x?.specialNotes ?? '',
-
         totalPrice: x?.totalPrice != null ? Number(x.totalPrice) : undefined,
         paymentMethod: x?.paymentMethod ?? undefined,
-
         createdAt: x?.createdAt ?? undefined,
         imageFileIds: Array.isArray(x?.imageFileIds) ? x.imageFileIds : undefined,
-
         deliveryDate: x?.deliveryDate ?? null,
         deliveryTime: x?.deliveryTime ?? null,
       }));
@@ -139,88 +120,93 @@ export default function DealerLogisticsTrackingPage() {
     }
   }
 
-  React.useEffect(() => {
-    loadList();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  React.useEffect(() => { loadList(); /* mount */ }, []);
 
-  function openEdit(r: DealerJob) {
-    setEditing(r);
-    setEditOpen(true);
-  }
+  function openEdit(r: DealerJob) { setEditing(r); setEditOpen(true); }
 
   async function handleUpdate(updated: DealerJob) {
     if (!updated?.id) return;
-    setBusyId(updated.id);
-    setError(null);
-    setOk(null);
+    setBusyId(updated.id); setError(null); setOk(null);
     try {
-      // PUT body — endpoint tüm alanları istiyor, mevcut veriyi tam gönderiyoruz
       const body = {
         deliveryType: updated.deliveryType,
         carrierType: updated.carrierType,
         vehicleType: updated.vehicleType,
-
         pickupAddress: updated.pickupAddress,
         dropoffAddress: updated.dropoffAddress,
-
         specialNotes: updated.specialNotes ?? '',
-
-        campaignCode: '', // opsiyonel alan, yoksa boş
-        extraServices: [], // şimdilik boş
+        campaignCode: '',
+        extraServices: [],
         extraServicesTotal: 0,
-
         totalPrice: Number(updated.totalPrice ?? 0),
         paymentMethod: updated.paymentMethod ?? 'cash',
-
         imageFileIds: updated.imageFileIds ?? [],
-
-        // scheduled ise doldur, değilse boş string gönder (swagger örneği string)
         deliveryDate: updated.deliveryType === 'scheduled' ? (updated.deliveryDate ?? '') : '',
         deliveryTime: updated.deliveryType === 'scheduled' ? (updated.deliveryTime ?? '') : '',
       };
-
       const res = await fetch(`/yuksi/dealer/jobs/${updated.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...headers },
-        body: JSON.stringify(body),
+        method: 'PUT', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body),
       });
       const j = await readJson(res);
-      if (!res.ok || j?.success === false) {
-        throw new Error(collectErrors(j) || pickMsg(j, `HTTP ${res.status}`));
-      }
-
-      setOk('Yük güncellendi.');
-      setEditOpen(false);
-      setEditing(null);
-      await loadList();
-    } catch (e: any) {
-      setError(e?.message || 'Güncelleme başarısız.');
-    } finally {
-      setBusyId(null);
-    }
+      if (!res.ok || j?.success === false) throw new Error(collectErrors(j) || pickMsg(j, `HTTP ${res.status}`));
+      setOk('Yük güncellendi.'); setEditOpen(false); setEditing(null); await loadList();
+    } catch (e: any) { setError(e?.message || 'Güncelleme başarısız.'); }
+    finally { setBusyId(null); }
   }
 
   async function handleDelete(id: string) {
     if (!confirm('Bu yük kaydını silmek istiyor musun?')) return;
-    setBusyId(id);
-    setError(null);
-    setOk(null);
+    setBusyId(id); setError(null); setOk(null);
     try {
-      const res = await fetch(`/yuksi/dealer/jobs/${id}`, {
-        method: 'DELETE',
-        headers,
-      });
+      const res = await fetch(`/yuksi/dealer/jobs/${id}`, { method: 'DELETE', headers });
       const j = await readJson(res);
-      if (!res.ok || j?.success === false) {
-        throw new Error(pickMsg(j, `HTTP ${res.status}`));
-      }
-      setOk('Kayıt silindi.');
-      setRows((p) => p.filter((x) => x.id !== id));
+      if (!res.ok || j?.success === false) throw new Error(pickMsg(j, `HTTP ${res.status}`));
+      setOk('Kayıt silindi.'); setRows((p) => p.filter((x) => x.id !== id));
+    } catch (e: any) { setError(e?.message || 'Silme işlemi başarısız.'); }
+    finally { setBusyId(null); }
+  }
+
+  /* ---------- Route viewer ---------- */
+  // basit cache
+  const geoCache = React.useRef<Map<string, LatLng>>(new Map());
+
+  async function geocodeOnce(address: string): Promise<LatLng> {
+    const key = address.trim();
+    if (!key) throw new Error('Adres boş.');
+    const c = geoCache.current.get(key);
+    if (c) return c;
+
+    const url = new URL('https://nominatim.openstreetmap.org/search');
+    url.searchParams.set('format', 'json');
+    url.searchParams.set('addressdetails', '0');
+    url.searchParams.set('limit', '1');
+    url.searchParams.set('q', key);
+    const res = await fetch(url.toString(), { headers: { 'Accept-Language': 'tr' } });
+    const arr = (await res.json()) as any[];
+    if (!arr?.length) throw new Error('Adres bulunamadı: ' + key);
+    const lat = Number(arr[0].lat), lng = Number(arr[0].lon);
+    const v = { lat, lng };
+    geoCache.current.set(key, v);
+    return v;
+  }
+
+  async function showRoute(r: DealerJob) {
+    setRouteOpen(true);
+    setRouteFor(r);
+    setRouteLoading(true);
+    setRouteErr(null);
+    setStart(null); setEnd(null);
+
+    try {
+      const [s, e] = await Promise.all([
+        geocodeOnce(r.pickupAddress),
+        geocodeOnce(r.dropoffAddress),
+      ]);
+      setStart(s); setEnd(e);
     } catch (e: any) {
-      setError(e?.message || 'Silme işlemi başarısız.');
+      setRouteErr(e?.message || 'Konumlar getirilemedi.');
     } finally {
-      setBusyId(null);
+      setRouteLoading(false);
     }
   }
 
@@ -234,27 +220,18 @@ export default function DealerLogisticsTrackingPage() {
         </div>
         <div className="flex items-center gap-2">
           <input
-            type="number"
-            min={1}
+            type="number" min={1}
             className="w-28 rounded-lg border border-neutral-300 bg-white px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-sky-200"
-            value={limit}
-            onChange={(e) => setLimit(e.target.value === '' ? '' : Number(e.target.value))}
-            placeholder="limit"
-            title="limit"
+            value={limit} onChange={(e) => setLimit(e.target.value === '' ? '' : Number(e.target.value))}
+            placeholder="limit" title="limit"
           />
           <input
-            type="number"
-            min={0}
+            type="number" min={0}
             className="w-28 rounded-lg border border-neutral-300 bg-white px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-sky-200"
-            value={offset}
-            onChange={(e) => setOffset(e.target.value === '' ? '' : Number(e.target.value))}
-            placeholder="offset"
-            title="offset"
+            value={offset} onChange={(e) => setOffset(e.target.value === '' ? '' : Number(e.target.value))}
+            placeholder="offset" title="offset"
           />
-          <button
-            onClick={loadList}
-            className="rounded-xl border border-neutral-300 bg-white px-4 py-2 text-sm hover:bg-neutral-50"
-          >
+          <button onClick={loadList} className="rounded-xl border border-neutral-300 bg-white px-4 py-2 text-sm hover:bg-neutral-50">
             Yenile
           </button>
         </div>
@@ -296,7 +273,13 @@ export default function DealerLogisticsTrackingPage() {
                   <td className="px-6 py-3">{r.paymentMethod ?? '—'}</td>
                   <td className="px-6 py-3">{fmtDT(r.createdAt)}</td>
                   <td className="px-6 py-3">
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        onClick={() => showRoute(r)}
+                        className="rounded-md bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-sky-700"
+                      >
+                        Haritada Göster
+                      </button>
                       <button
                         onClick={() => openEdit(r)}
                         className="rounded-md bg-green-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-green-600"
@@ -326,6 +309,7 @@ export default function DealerLogisticsTrackingPage() {
         {loading && <div className="px-6 py-3 text-sm text-neutral-500">Yükleniyor…</div>}
       </section>
 
+      {/* Edit Modal */}
       {editOpen && editing && (
         <EditJobModal
           job={editing}
@@ -333,30 +317,43 @@ export default function DealerLogisticsTrackingPage() {
           onSave={handleUpdate}
         />
       )}
+
+      {/* Route Modal */}
+      {routeOpen && routeFor && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4" onClick={() => setRouteOpen(false)}>
+          <div className="w-full max-w-4xl overflow-hidden rounded-2xl bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between border-b px-5 py-4">
+              <h3 className="text-lg font-semibold">
+                Rota: <span className="font-normal">{routeFor.pickupAddress}</span> ➜{' '}
+                <span className="font-normal">{routeFor.dropoffAddress}</span>
+              </h3>
+              <button onClick={() => setRouteOpen(false)} className="rounded-full p-2 hover:bg-neutral-100">✕</button>
+            </div>
+
+            {routeErr && <div className="m-4 rounded-md bg-rose-50 px-4 py-3 text-sm text-rose-700">{routeErr}</div>}
+            {routeLoading && <div className="p-4 text-sm text-neutral-500">Konumlar yükleniyor…</div>}
+
+            {!routeLoading && !routeErr && start && end && (
+              <div className="p-4">
+                <div style={{ height: 420 }} className="rounded-xl overflow-hidden">
+                  <RouteMap start={start} end={end} />
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
 /* ================= Edit Modal ================= */
 function EditJobModal({
-  job,
-  onClose,
-  onSave,
-}: {
-  job: DealerJob;
-  onClose: () => void;
-  onSave: (j: DealerJob) => void;
-}) {
+  job, onClose, onSave,
+}: { job: DealerJob; onClose: () => void; onSave: (j: DealerJob) => void; }) {
   const [model, setModel] = React.useState<DealerJob>({ ...job });
-
-  function set<K extends keyof DealerJob>(k: K, v: DealerJob[K]) {
-    setModel((p) => ({ ...p, [k]: v }));
-  }
-
-  function submit(e: React.FormEvent) {
-    e.preventDefault();
-    onSave(model);
-  }
+  function set<K extends keyof DealerJob>(k: K, v: DealerJob[K]) { setModel((p) => ({ ...p, [k]: v })); }
+  function submit(e: React.FormEvent) { e.preventDefault(); onSave(model); }
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4">
@@ -365,43 +362,26 @@ function EditJobModal({
           <h3 className="text-lg font-semibold">Yükü Düzenle</h3>
           <button onClick={onClose} className="rounded-full p-2 hover:bg-neutral-100">✕</button>
         </div>
-
         <form onSubmit={submit} className="space-y-4 p-5">
           <div className="grid gap-4 md:grid-cols-2">
             <div>
               <label className="mb-1 block text-sm font-medium">Teslim Tipi</label>
-              <select
-                value={model.deliveryType}
-                onChange={(e) => set('deliveryType', e.target.value as any)}
-                className="w-full rounded-xl border border-neutral-300 px-3 py-2"
-              >
+              <select value={model.deliveryType} onChange={(e) => set('deliveryType', e.target.value as any)} className="w-full rounded-xl border border-neutral-300 px-3 py-2">
                 <option value="immediate">immediate</option>
                 <option value="scheduled">scheduled</option>
               </select>
             </div>
             <div>
               <label className="mb-1 block text-sm font-medium">Taşıyıcı Tipi</label>
-              <input
-                value={model.carrierType}
-                onChange={(e) => set('carrierType', e.target.value)}
-                className="w-full rounded-xl border border-neutral-300 px-3 py-2"
-              />
+              <input value={model.carrierType} onChange={(e) => set('carrierType', e.target.value)} className="w-full rounded-xl border border-neutral-300 px-3 py-2" />
             </div>
             <div>
               <label className="mb-1 block text-sm font-medium">Araç Tipi</label>
-              <input
-                value={model.vehicleType}
-                onChange={(e) => set('vehicleType', e.target.value)}
-                className="w-full rounded-xl border border-neutral-300 px-3 py-2"
-              />
+              <input value={model.vehicleType} onChange={(e) => set('vehicleType', e.target.value)} className="w-full rounded-xl border border-neutral-300 px-3 py-2" />
             </div>
             <div>
               <label className="mb-1 block text-sm font-medium">Ödeme Yöntemi</label>
-              <select
-                value={model.paymentMethod ?? ''}
-                onChange={(e) => set('paymentMethod', (e.target.value || undefined) as any)}
-                className="w-full rounded-xl border border-neutral-300 px-3 py-2"
-              >
+              <select value={model.paymentMethod ?? ''} onChange={(e) => set('paymentMethod', (e.target.value || undefined) as any)} className="w-full rounded-xl border border-neutral-300 px-3 py-2">
                 <option value="">Seçiniz</option>
                 <option value="cash">cash</option>
                 <option value="card">card</option>
@@ -413,54 +393,28 @@ function EditJobModal({
           <div className="grid gap-4 md:grid-cols-2">
             <div>
               <label className="mb-1 block text-sm font-medium">Alım Adresi</label>
-              <textarea
-                rows={2}
-                value={model.pickupAddress}
-                onChange={(e) => set('pickupAddress', e.target.value)}
-                className="w-full rounded-xl border border-neutral-300 px-3 py-2"
-              />
+              <textarea rows={2} value={model.pickupAddress} onChange={(e) => set('pickupAddress', e.target.value)} className="w-full rounded-xl border border-neutral-300 px-3 py-2" />
             </div>
             <div>
               <label className="mb-1 block text-sm font-medium">Teslim Adresi</label>
-              <textarea
-                rows={2}
-                value={model.dropoffAddress}
-                onChange={(e) => set('dropoffAddress', e.target.value)}
-                className="w-full rounded-xl border border-neutral-300 px-3 py-2"
-              />
+              <textarea rows={2} value={model.dropoffAddress} onChange={(e) => set('dropoffAddress', e.target.value)} className="w-full rounded-xl border border-neutral-300 px-3 py-2" />
             </div>
           </div>
 
           <div className="grid gap-4 md:grid-cols-3">
             <div>
               <label className="mb-1 block text-sm font-medium">Toplam Fiyat (₺)</label>
-              <input
-                type="number"
-                value={model.totalPrice ?? 0}
-                onChange={(e) => set('totalPrice', Number(e.target.value))}
-                className="w-full rounded-xl border border-neutral-300 px-3 py-2"
-              />
+              <input type="number" value={model.totalPrice ?? 0} onChange={(e) => set('totalPrice', Number(e.target.value))} className="w-full rounded-xl border border-neutral-300 px-3 py-2" />
             </div>
-
             {model.deliveryType === 'scheduled' && (
               <>
                 <div>
                   <label className="mb-1 block text-sm font-medium">Teslim Tarihi (DD.MM.YYYY)</label>
-                  <input
-                    value={model.deliveryDate ?? ''}
-                    onChange={(e) => set('deliveryDate', e.target.value)}
-                    className="w-full rounded-xl border border-neutral-300 px-3 py-2"
-                    placeholder="27.01.2025"
-                  />
+                  <input value={model.deliveryDate ?? ''} onChange={(e) => set('deliveryDate', e.target.value)} className="w-full rounded-xl border border-neutral-300 px-3 py-2" placeholder="27.01.2025" />
                 </div>
                 <div>
                   <label className="mb-1 block text-sm font-medium">Teslim Saati (HH:mm)</label>
-                  <input
-                    value={model.deliveryTime ?? ''}
-                    onChange={(e) => set('deliveryTime', e.target.value)}
-                    className="w-full rounded-xl border border-neutral-300 px-3 py-2"
-                    placeholder="10:00"
-                  />
+                  <input value={model.deliveryTime ?? ''} onChange={(e) => set('deliveryTime', e.target.value)} className="w-full rounded-xl border border-neutral-300 px-3 py-2" placeholder="10:00" />
                 </div>
               </>
             )}
@@ -468,12 +422,7 @@ function EditJobModal({
 
           <div>
             <label className="mb-1 block text-sm font-medium">Özel Notlar</label>
-            <textarea
-              rows={3}
-              value={model.specialNotes ?? ''}
-              onChange={(e) => set('specialNotes', e.target.value)}
-              className="w-full rounded-xl border border-neutral-300 px-3 py-2"
-            />
+            <textarea rows={3} value={model.specialNotes ?? ''} onChange={(e) => set('specialNotes', e.target.value)} className="w-full rounded-xl border border-neutral-300 px-3 py-2" />
           </div>
 
           <div>
@@ -487,22 +436,43 @@ function EditJobModal({
           </div>
 
           <div className="mt-2 flex items-center justify-end gap-3">
-            <button
-              type="submit"
-              className="rounded-xl bg-emerald-500 px-5 py-2 text-sm font-semibold text-white hover:bg-emerald-600"
-            >
+            <button type="submit" className="rounded-xl bg-emerald-500 px-5 py-2 text-sm font-semibold text-white hover:bg-emerald-600">
               Kaydet
             </button>
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-xl bg-neutral-100 px-5 py-2 text-sm hover:bg-neutral-200"
-            >
+            <button type="button" onClick={onClose} className="rounded-xl bg-neutral-100 px-5 py-2 text-sm hover:bg-neutral-200">
               İptal
             </button>
           </div>
         </form>
       </div>
     </div>
+  );
+}
+
+/* ================= Route Map (markers + polyline) ================= */
+
+function FitBounds({ start, end }: { start: LatLng; end: LatLng }) {
+  const map = useMap();
+  React.useEffect(() => {
+    try { map.fitBounds([[start.lat, start.lng], [end.lat, end.lng]], { padding: [30, 30] }); } catch {}
+  }, [map, start, end]);
+  return null;
+}
+
+function RouteMap({ start, end }: { start: LatLng; end: LatLng }) {
+  const center: [number, number] = [ (start.lat + end.lat) / 2, (start.lng + end.lng) / 2 ];
+  return (
+    <MapContainer center={center} zoom={12} style={{ width: '100%', height: '100%' }}>
+      <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="&copy; OpenStreetMap contributors" />
+      <FitBounds start={start} end={end} />
+      <CircleMarker center={[start.lat, start.lng]} radius={8} pathOptions={{ color: '#22c55e', weight: 3, fillOpacity: 0.9 }}>
+        <Tooltip direction="top" offset={[0, -6]} opacity={1}>Alım Noktası</Tooltip>
+      </CircleMarker>
+      <CircleMarker center={[end.lat, end.lng]} radius={8} pathOptions={{ color: '#ef4444', weight: 3, fillOpacity: 0.9 }}>
+        <Tooltip direction="top" offset={[0, -6]} opacity={1}>Teslim Noktası</Tooltip>
+      </CircleMarker>
+      {/* Basit rota görünümü: iki nokta arası çizgi */}
+      <Polyline positions={[[start.lat, start.lng], [end.lat, end.lng]]} pathOptions={{ weight: 4, opacity: 0.8 }} />
+    </MapContainer>
   );
 }

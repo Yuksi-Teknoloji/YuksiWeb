@@ -63,8 +63,7 @@ export const NAV: Record<Role, RawNavGroup[]> = {
     items: [
       { label: "Şirket Oluştur",   path: "admin/companies/create-company" },
       { label: "Şirket Listesi",   path: "admin/companies/company-list" },
-      { label: "Yetkili Kişiler",  path: "admin/companies/authorized-person" },
-      { label: "Km Talepleri",     path: "admin/companies/km-prices" }, // kök sayfanız buysa böyle bırakın
+      { label: "Yetkili Kişiler",  path: "admin/companies/authorized-person" }, // kök sayfanız buysa böyle bırakın
     ],
   },
   {
@@ -77,8 +76,6 @@ export const NAV: Record<Role, RawNavGroup[]> = {
     title: "İçerikler",
     items: [
       { label: "Sayfa Listesi",         path: "admin/contents/page-list" },
-      { label: "Sözleşme Metinleri",    path: "admin/contents/contract-texts" },
-      { label: "Destek Metinleri",      path: "admin/contents/support-texts" },
       { label: "Web Site Referansları", path: "admin/contents/referances" },
     ],
   },
@@ -89,11 +86,10 @@ export const NAV: Record<Role, RawNavGroup[]> = {
       { label: "Araç Tipleri",      path: "admin/system/vehicle-types" },
       { label: "Yük Tipleri",       path: "admin/system/load-types" },
       { label: "Ek Fiyatlar",       path: "admin/system/additional-costs" },
-      { label: "Taşıma Paketleri",  path: "admin/system/transport-packages" },
+      { label: "Ödeme Durumları",  path: "admin/system/transport-packages" },
       { label: "Km Fiyatları",      path: "admin/system/km-prices" },
       { label: "Kampanya Kodları",  path: "admin/system/add-campaign" },
       { label: "Bildirim Gönder",   path: "admin/system/send-notification" },
-      { label: "Parametreler",      path: "admin/system/parameters" },
     ],
   },
 ],
