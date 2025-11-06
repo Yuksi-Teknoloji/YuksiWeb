@@ -167,7 +167,7 @@ export default function Charts() {
             <option value="monthly">Aylık</option>
           </select>
           <span>Sipariş Gelirleri</span>
-          <span className="bg-gray-100 p-1 rounded">{data.total_amount}</span>
+          <span className="bg-gray-100 p-1 rounded">Toplam: {data.total_amount}</span>
         </div>
 
         <ChartLine
