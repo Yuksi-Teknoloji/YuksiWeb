@@ -39,13 +39,7 @@ export default function Charts() {
     fetchUsers();
   }, [fetchUsers]);
 
-  if (!data) {
-    return (
-      <div className="w-full max-w-[500px] h-[300px] flex items-center justify-center">
-        Yükleniyor...
-      </div>
-    );
+  if (data) {
+    return <ChartPie data={data} title={"Hesap Türleri"} />;
   }
-
-  return <ChartPie data={data} title={"Hesap Türleri"} />;
 }
