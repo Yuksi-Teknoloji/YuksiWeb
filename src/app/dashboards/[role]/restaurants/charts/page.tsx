@@ -148,7 +148,7 @@ export default function Charts() {
     fetchOrders();
   }, [fetchOrders]);
 
-  if (!data) return null;
+  if (!data) return "Forbidden: insufficient role";
 
   return (
     <div className="flex flex-wrap justify-between gap-15">
