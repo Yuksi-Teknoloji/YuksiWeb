@@ -20,12 +20,13 @@ async function readJson<T = any>(res: Response): Promise<T> {
 const pickMsg = (d: any, fb: string) => d?.message || d?.detail || d?.title || fb;
 
 /* ================= API Types ================= */
+/** BE → id uuid (string), location alanları ID olarak döner */
 type CityPriceApi = {
-  id: number;
+  id: string;                 // UUID
   route_name: string;
-  country_name: string;
-  state_name: string;
-  city_name: string;            // <-- GET için eklendi
+  country_id: number;
+  state_id: number;
+  city_id: number;
   courier_price: number;
   minivan_price: number;
   panelvan_price: number;
@@ -40,11 +41,11 @@ type City    = { id: number; name: string };
 
 /* ================= UI Types ================= */
 type Row = {
-  id: number;
-  lineName: string;   // route_name
-  country: string;    // country_name
-  state: string;      // state_name
-  city: string;       // city_name
+  id: string;        // price UUID
+  lineName: string;
+  country: string;   // eşlenen isim
+  state: string;     // eşlenen isim
+  city: string;      // eşlenen isim
   prices: {
     kurye: number;
     minivan: number;
@@ -59,7 +60,7 @@ type FormState = {
   route_name: string;
   country_id?: number | '';
   state_id?: number | '';
-  city_id?: number | '';        // <-- POST/PUT için eklendi
+  city_id?: number | '';
   courier_price: number | string;
   minivan_price: number | string;
   panelvan_price: number | string;
@@ -85,7 +86,7 @@ export default function CityPricesPage() {
 
   // modal
   const [isOpen, setIsOpen] = React.useState(false);
-  const [editingId, setEditingId] = React.useState<number | null>(null);
+  const [editingId, setEditingId] = React.useState<string | null>(null);
   const [saving, setSaving] = React.useState(false);
 
   // form
@@ -93,7 +94,7 @@ export default function CityPricesPage() {
     route_name: '',
     country_id: '',
     state_id: '',
-    city_id: '',                  // <-- eklendi
+    city_id: '',
     courier_price: 0,
     minivan_price: 0,
     panelvan_price: 0,
@@ -101,7 +102,7 @@ export default function CityPricesPage() {
     kamyon_price: 0,
   });
 
-  /* --------- GEO --------- */
+  /* --------- GEO (select'ler için) --------- */
   const [countries, setCountries]               = React.useState<Country[]>([]);
   const [countriesLoading, setCountriesLoading] = React.useState(false);
   const [countriesError, setCountriesError]     = React.useState<string | null>(null);
@@ -115,9 +116,9 @@ export default function CityPricesPage() {
   const [cities, setCities]               = React.useState<City[]>([]);
   const [citiesLoading, setCitiesLoading] = React.useState(false);
   const [citiesError, setCitiesError]     = React.useState<string | null>(null);
-  const [cityId, setCityId]               = React.useState<number | ''>(''); // artık payload’a da gidiyor
+  const [cityId, setCityId]               = React.useState<number | ''>('');
 
-  // ÜLKELER
+  // ÜLKELER (genel liste)
   React.useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -144,10 +145,10 @@ export default function CityPricesPage() {
     return () => { cancelled = true; };
   }, []);
 
-  // STATE’LER
+  // STATE’LER (select zinciri)
   React.useEffect(() => {
     setStates([]); setStateId(''); setCities([]); setCityId('');
-    setForm(p => ({ ...p, state_id: '', city_id: '' })); // formu senkronla
+    setForm(p => ({ ...p, state_id: '', city_id: '' }));
     if (countryId === '' || !Number.isFinite(Number(countryId))) return;
 
     let cancelled = false;
@@ -176,10 +177,10 @@ export default function CityPricesPage() {
     return () => { cancelled = true; };
   }, [countryId]);
 
-  // CITIES
+  // CITIES (select zinciri)
   React.useEffect(() => {
     setCities([]); setCityId('');
-    setForm(p => ({ ...p, city_id: '' })); // formu senkronla
+    setForm(p => ({ ...p, city_id: '' }));
     if (stateId === '' || !Number.isFinite(Number(stateId))) return;
 
     let cancelled = false;
@@ -208,30 +209,107 @@ export default function CityPricesPage() {
     return () => { cancelled = true; };
   }, [stateId]);
 
-  /* --------- Liste --------- */
+  /* --------- Liste + ID→İsim Eşleme --------- */
   const loadList = React.useCallback(async () => {
     setLoading(true); setError(null);
+    let cancelled = false;
     try {
-      const res = await fetch('/yuksi/CityPrice/list', { cache: 'no-store', headers });
+      // 1) Fiyat listesi (ID'lerle)
+      const res = await fetch('/yuksi/admin/city-prices', { cache: 'no-store', headers });
       const j: any = await readJson(res);
       if (!res.ok || j?.success === false) throw new Error(pickMsg(j, `HTTP ${res.status}`));
 
       const list: CityPriceApi[] = Array.isArray(j?.data) ? j.data : (Array.isArray(j) ? j : []);
+      // ID’leri topla
+      const uniqueCountryIds = new Set<number>();
+      const uniqueStateIds   = new Set<number>();
+      const uniqueCityIds    = new Set<number>();
+
+      for (const x of list) {
+        if (Number.isFinite(Number(x.country_id))) uniqueCountryIds.add(Number(x.country_id));
+        if (Number.isFinite(Number(x.state_id)))   uniqueStateIds.add(Number(x.state_id));
+        if (Number.isFinite(Number(x.city_id)))    uniqueCityIds.add(Number(x.city_id));
+      }
+
+      // 2) Ülke isim haritası (ülkeleri zaten yukarıda çektik; yedek olarak tekrar çekmeyelim)
+      const countryMap = new Map<number, string>(countries.map(c => [c.id, c.name]));
+
+      // 3) State ve City isim haritaları (ülkeye ve eyalete göre bölerek çek)
+      const stateMap = new Map<number, string>();
+      const cityMap  = new Map<number, string>();
+
+      // a) Eyaletler: listedeki her ülke için states al ve gerekli id’leri eşle
+      const countriesToFetch = new Set<number>();
+      // countries state'lerini bilmediğimiz için listedeki country_id'leri kullan
+      for (const x of list) {
+        const cid = Number(x.country_id);
+        if (Number.isFinite(cid)) countriesToFetch.add(cid);
+      }
+
+      // Paralel çekim
+      await Promise.all(
+        Array.from(countriesToFetch).map(async (cid) => {
+          const url = new URL('/yuksi/geo/states', location.origin);
+          url.searchParams.set('country_id', String(cid));
+          url.searchParams.set('limit', '500');
+          url.searchParams.set('offset', '0');
+          const r = await fetch(url.toString(), { cache: 'no-store' });
+          const d = await readJson(r);
+          if (r.ok) {
+            const arr: any[] = Array.isArray(d) ? d : (Array.isArray(d?.data) ? d.data : []);
+            for (const s of arr) {
+              const sid = Number(s?.id);
+              const name = String(s?.name ?? '');
+              if (Number.isFinite(sid) && name) stateMap.set(sid, name);
+            }
+          }
+        })
+      );
+
+      // b) Şehirler: listedeki her state için cities al ve gerekli id’leri eşle
+      const statesToFetch = new Set<number>();
+      for (const x of list) {
+        const sid = Number(x.state_id);
+        if (Number.isFinite(sid)) statesToFetch.add(sid);
+      }
+      await Promise.all(
+        Array.from(statesToFetch).map(async (sid) => {
+          const url = new URL('/yuksi/geo/cities', location.origin);
+          url.searchParams.set('state_id', String(sid));
+          url.searchParams.set('limit', '1000');
+          url.searchParams.set('offset', '0');
+          const r = await fetch(url.toString(), { cache: 'no-store' });
+          const d = await readJson(r);
+          if (r.ok) {
+            const arr: any[] = Array.isArray(d) ? d : (Array.isArray(d?.data) ? d.data : []);
+            for (const c of arr) {
+              const cid = Number(c?.id);
+              const name = String(c?.name ?? '');
+              if (Number.isFinite(cid) && name) cityMap.set(cid, name);
+            }
+          }
+        })
+      );
+
+      if (cancelled) return;
+
+      // 4) Listeyi isimlerle map et
       const mapped: Row[] = list.map((x) => ({
-        id: Number(x.id),
-        lineName: x.route_name,
-        country: x.country_name,
-        state: x.state_name,
-        city: x.city_name ?? '-',                               // <-- city_name göster
+        id: String(x.id),
+        lineName: String(x.route_name ?? ''),
+        country: countryMap.get(Number(x.country_id)) ?? `#${x.country_id}`,
+        state:   stateMap.get(Number(x.state_id))     ?? `#${x.state_id}`,
+        city:    cityMap.get(Number(x.city_id))       ?? `#${x.city_id}`,
         prices: {
-          kurye: x.courier_price,
-          minivan: x.minivan_price,
-          panelvan: x.panelvan_price,
-          kamyonet: x.kamyonet_price,
-          kamyon: x.kamyon_price,
+          kurye: Number(x.courier_price ?? 0),
+          minivan: Number(x.minivan_price ?? 0),
+          panelvan: Number(x.panelvan_price ?? 0),
+          kamyonet: Number(x.kamyonet_price ?? 0),
+          kamyon: Number(x.kamyon_price ?? 0),
         },
         createdAt: x.created_at ?? undefined,
       }));
+
       setRows(mapped);
     } catch (e: any) {
       setError(e?.message || 'Şehir fiyat listesi alınamadı.');
@@ -239,7 +317,9 @@ export default function CityPricesPage() {
     } finally {
       setLoading(false);
     }
-  }, [headers]);
+    return () => { cancelled = true; };
+  // countries bağımlı çünkü countryMap ondan kuruluyor
+  }, [headers, countries]);
 
   React.useEffect(() => { loadList(); }, [loadList]);
 
@@ -250,14 +330,13 @@ export default function CityPricesPage() {
       route_name: '',
       country_id: '',
       state_id: '',
-      city_id: '',                 // reset
+      city_id: '',
       courier_price: 0,
       minivan_price: 0,
       panelvan_price: 0,
       kamyonet_price: 0,
       kamyon_price: 0,
     });
-    // geo reset
     setCountryId(''); setStates([]); setStateId(''); setCities([]); setCityId('');
     setIsOpen(true);
   }
@@ -268,14 +347,13 @@ export default function CityPricesPage() {
       route_name: r.lineName,
       country_id: '',
       state_id: '',
-      city_id: '',                 // düzenlemede ID’ler yoksa boş başlat
+      city_id: '',
       courier_price: r.prices.kurye,
       minivan_price: r.prices.minivan,
       panelvan_price: r.prices.panelvan,
       kamyonet_price: r.prices.kamyonet,
       kamyon_price: r.prices.kamyon,
     });
-    // geo reset
     setCountryId(''); setStates([]); setStateId(''); setCities([]); setCityId('');
     setIsOpen(true);
   }
@@ -303,7 +381,7 @@ export default function CityPricesPage() {
       route_name: form.route_name,
       country_id: Number(countryId),
       state_id: Number(stateId),
-      city_id: Number(cityId),                 // <-- city_id gönderiyoruz
+      city_id: Number(cityId),
       courier_price: Number(form.courier_price || 0),
       minivan_price: Number(form.minivan_price || 0),
       panelvan_price: Number(form.panelvan_price || 0),
@@ -314,7 +392,7 @@ export default function CityPricesPage() {
     setSaving(true);
     try {
       if (editingId == null) {
-        const res = await fetch('/yuksi/CityPrice/create', {
+        const res = await fetch('/yuksi/admin/city-prices', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', ...headers },
           body: JSON.stringify(payload),
@@ -322,7 +400,7 @@ export default function CityPricesPage() {
         const j = await readJson(res);
         if (!res.ok || (j as any)?.success === false) throw new Error(pickMsg(j, `HTTP ${res.status}`));
       } else {
-        const res = await fetch(`/yuksi/CityPrice/update/${editingId}`, {
+        const res = await fetch(`/yuksi/admin/city-prices/${encodeURIComponent(editingId)}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json', ...headers },
           body: JSON.stringify(payload),
@@ -339,10 +417,10 @@ export default function CityPricesPage() {
     }
   }
 
-  async function remove(id: number) {
+  async function remove(id: string) {
     if (!confirm('Bu hattı silmek istediğinize emin misiniz?')) return;
     try {
-      const res = await fetch(`/yuksi/CityPrice/delete/${id}`, { method: 'DELETE', headers });
+      const res = await fetch(`/yuksi/admin/city-prices/${encodeURIComponent(id)}`, { method: 'DELETE', headers });
       const j = await readJson(res);
       if (!res.ok || (j as any)?.success === false) throw new Error(pickMsg(j, `HTTP ${res.status}`));
       await loadList();
@@ -408,7 +486,7 @@ export default function CityPricesPage() {
                 <th className="px-6 py-3 font-medium">Hat Adı</th>
                 <th className="px-6 py-3 font-medium">Ülke</th>
                 <th className="px-6 py-3 font-medium">İl/Eyalet</th>
-                <th className="px-6 py-3 font-medium">Şehir</th> {/* <-- city_name sütunu */}
+                <th className="px-6 py-3 font-medium">Şehir</th>
                 <th className="px-6 py-3 font-medium">Fiyatlar</th>
                 <th className="px-6 py-3 font-medium w-[180px]">Oluşturma</th>
                 <th className="px-6 py-3" />
@@ -426,7 +504,7 @@ export default function CityPricesPage() {
                   </td>
                   <td className="px-6 py-4">{r.country}</td>
                   <td className="px-6 py-4">{r.state}</td>
-                  <td className="px-6 py-4">{r.city}</td> {/* city_name */}
+                  <td className="px-6 py-4">{r.city}</td>
                   <td className="px-6 py-4">
                     <div className="whitespace-pre-line text-neutral-800 text-sm leading-5">
                       {[
@@ -477,7 +555,7 @@ export default function CityPricesPage() {
       {/* Modal */}
       {isOpen && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4">
-          <div className="max-h，[92vh] w-full max-w-3xl overflow-auto rounded-2xl bg-white shadow-xl">
+          <div className="max-h,[92vh] w-full max-w-3xl overflow-auto rounded-2xl bg-white shadow-xl">
             <div className="sticky top-0 z-10 flex items-center justify-between border-b border-neutral-200/70 bg-white p-4">
               <div className="text-lg font-semibold">{editingId == null ? 'Yeni Hat' : `Hat Düzenle (#${editingId})`}</div>
               <button
@@ -535,7 +613,7 @@ export default function CityPricesPage() {
                 </select>
               </div>
 
-              {/* Şehir (artık zorunlu ve payload’a gidiyor) */}
+              {/* Şehir */}
               <div className="sm:col-span-2">
                 <label className="mb-1 block text-sm font-medium text-neutral-700">Şehir / İlçe</label>
                 <select
