@@ -15,12 +15,15 @@ type ApiOrderBrief = {
   type: 'paket_servis' | 'gel_al' | 'yerinde';
   amount: string;
   status:
-    | 'hazirlaniyor'
-    | 'kurye_cagrildi'
-    | 'kuryeye_verildi'
-    | 'yolda'
-    | 'teslim_edildi'
-    | 'iptal';
+  | 'hazirlaniyor'
+  | 'kurye_cagrildi'
+  | 'kuryeye_verildi'
+  | 'kuryeye_istek_atildi'
+  | 'kurye_reddetti'
+  |'siparis_havuza_atildi'
+  | 'yolda'
+  | 'teslim_edildi'
+  | 'iptal';
   created_at: string;
 };
 
@@ -40,12 +43,12 @@ type ApiOrderDetails = {
   delivery_address: string | null;
   type: 'paket_servis' | 'gel_al' | 'yerinde';
   status:
-    | 'hazirlaniyor'
-    | 'kurye_cagrildi'
-    | 'kuryeye_verildi'
-    | 'yolda'
-    | 'teslim_edildi'
-    | 'iptal';
+  | 'hazirlaniyor'
+  | 'kurye_cagrildi'
+  | 'kuryeye_verildi'
+  | 'yolda'
+  | 'teslim_edildi'
+  | 'iptal';
   amount: string;
   carrier_type?: string | null;
   vehicle_type?: string | null;
@@ -64,6 +67,9 @@ type Status =
   | 'Hazırlanıyor'
   | 'Kurye Çağrıldı'
   | 'Kuryeye Verildi'
+  | 'Kuryeye İstek Atıldı'
+  | 'Kurye Reddetti'
+  |'Sipariş Havuza Atıldı'
   | 'Yolda'
   | 'Teslim Edildi'
   | 'İptal';
@@ -95,6 +101,9 @@ const apiStatusToUi: Record<ApiOrderBrief['status'], Status> = {
   hazirlaniyor: 'Hazırlanıyor',
   kurye_cagrildi: 'Kurye Çağrıldı',
   kuryeye_verildi: 'Kuryeye Verildi',
+  kuryeye_istek_atildi: 'Kuryeye İstek Atıldı',
+  kurye_reddetti: 'Kurye Reddetti',
+  siparis_havuza_atildi:'Sipariş Havuza Atıldı',
   yolda: 'Yolda',
   teslim_edildi: 'Teslim Edildi',
   iptal: 'İptal',
@@ -103,6 +112,9 @@ const uiStatusToApi: Record<Status, ApiOrderBrief['status']> = {
   Hazırlanıyor: 'hazirlaniyor',
   'Kurye Çağrıldı': 'kurye_cagrildi',
   'Kuryeye Verildi': 'kuryeye_verildi',
+  'Kuryeye İstek Atıldı': 'kuryeye_istek_atildi',
+  'Kurye Reddetti': 'kurye_reddetti',
+  'Sipariş Havuza Atıldı':'siparis_havuza_atildi',
   Yolda: 'yolda',
   'Teslim Edildi': 'teslim_edildi',
   İptal: 'iptal',
@@ -251,6 +263,14 @@ export default function OrderHistoryPage() {
       );
       return;
     }
+
+    // tarih mantık kontrolü
+    if (start && end && new Date(start) > new Date(end)) {
+      setError('Bitiş tarihi başlangıçtan önce olamaz.');
+      setRows([]);
+      return;
+    }
+
     setLoading(true);
     setError(null);
     try {
@@ -260,7 +280,7 @@ export default function OrderHistoryPage() {
       );
       if (byStatus) url.searchParams.set('status', uiStatusToApi[byStatus]);
       if (byType) url.searchParams.set('type', uiTypeToApi[byType]);
-      // tarih & q backend’de yoksa göndermiyoruz
+      // tarih & q backend’de yoksa göndermiyoruz (client-side filtreleyeceğiz)
 
       const res = await fetch(url.toString(), {
         cache: 'no-store',
@@ -282,7 +302,29 @@ export default function OrderHistoryPage() {
         status: apiStatusToUi[o.status],
       }));
 
-      mapped.sort((a, b) => {
+      // ---- CLIENT-SIDE FİLTRELER: q + start/end ----
+      const qText = q.trim().toLowerCase();
+      const startDT = start ? new Date(`${start}T00:00:00`) : null;
+      const endDT = end ? new Date(`${end}T23:59:59.999`) : null;
+
+      const filtered = mapped.filter((r) => {
+        // arama metni
+        const matchesQ =
+          !qText ||
+          [r.code, r.customer, r.phone]
+            .filter(Boolean)
+            .some((v) => (v || '').toLowerCase().includes(qText));
+
+        // tarih aralığı
+        const dt = new Date(r.date);
+        const inStart = !startDT || dt >= startDT;
+        const inEnd = !endDT || dt <= endDT;
+
+        return matchesQ && inStart && inEnd;
+      });
+
+      // sırala
+      filtered.sort((a, b) => {
         let v = 0;
         if (sortKey === 'date')
           v = new Date(a.date).getTime() - new Date(b.date).getTime();
@@ -290,7 +332,7 @@ export default function OrderHistoryPage() {
         return sortAsc ? v : -v;
       });
 
-      setRows(mapped);
+      setRows(filtered);
       setTotalAmount(Number(data?.data?.total_amount ?? 0));
       setPage(1);
     } catch (e: any) {
@@ -299,7 +341,7 @@ export default function OrderHistoryPage() {
     } finally {
       setLoading(false);
     }
-  }, [restaurantId, byStatus, byType, sortKey, sortAsc, authHeaders]);
+  }, [restaurantId, byStatus, byType, sortKey, sortAsc, authHeaders, q, start, end]);
 
   React.useEffect(() => {
     setRestaurantId(resolvedRestaurantId);
@@ -460,6 +502,9 @@ export default function OrderHistoryPage() {
               >
                 <option value="">Tümü</option>
                 <option>Hazırlanıyor</option>
+                <option>Kuryeye İstek Atıldı</option>
+                <option>Kurye Reddetti</option>
+                <option>Sipariş Havuza Atıldı</option>
                 <option>Kurye Çağrıldı</option>
                 <option>Kuryeye Verildi</option>
                 <option>Yolda</option>
@@ -592,7 +637,7 @@ export default function OrderHistoryPage() {
                             onClick={() => openUpdate(r.id)}
                             className="rounded-lg bg-orange-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-orange-700"
                           >
-                           Durumu Güncelle
+                            Durumu Güncelle
                           </button>
                         </div>
                       </td>
@@ -771,7 +816,7 @@ function OrderDetailModal({
       <div
         role="dialog"
         aria-modal="true"
-        className="absolute left-1/2 top-10 w-[min(920px,94vw)] -translate-x-1/2 rounded-2xl bg-white shadow-xl ring-1 ring-black/5 max-h-[90vh] overflow-y-auto" 
+        className="absolute left-1/2 top-10 w-[min(920px,94vw)] -translate-x-1/2 rounded-2xl bg-white shadow-xl ring-1 ring-black/5 max-h-[90vh] overflow-y-auto"
       >
         <div className="flex items-center justify-between px-5 py-4 border-b">
           <div>
@@ -966,12 +1011,12 @@ type UpdateForm = {
   delivery_address: string;
   type: 'paket_servis' | 'gel_al' | 'yerinde';
   status:
-    | 'iptal'
-    | 'hazirlaniyor'
-    | 'kurye_cagrildi'
-    | 'kuryeye_verildi'
-    | 'yolda'
-    | 'teslim_edildi';
+  | 'iptal'
+  | 'hazirlaniyor'
+  | 'kurye_cagrildi'
+  | 'kuryeye_verildi'
+  | 'yolda'
+  | 'teslim_edildi';
   amount: number;
   cargo_type?: string;
   special_requests?: string;
@@ -1036,8 +1081,11 @@ function UpdateOrderModal({
                 className="w-full rounded-lg border px-3 py-2"
               >
                 <option value="hazirlaniyor">Hazırlanıyor</option>
+                <option value="kuryeye_istek_atildi">Kuryeye İstek Atıldı</option>
+                <option value="kurye_reddetti">Kuryeye Reddetti</option>
                 <option value="kurye_cagrildi">Kurye Çağrıldı</option>
                 <option value="kuryeye_verildi">Kuryeye Verildi</option>
+                <option value="siparis_havuza_atildi">Sipariş Havuza Atıldı</option>
                 <option value="yolda">Yolda</option>
                 <option value="teslim_edildi">Teslim Edildi</option>
                 <option value="iptal">İptal</option>
@@ -1088,9 +1136,12 @@ function StatusPill({ status }: { status: Status }) {
     Hazırlanıyor: 'bg-amber-500 text-white',
     'Kurye Çağrıldı': 'bg-indigo-500 text-white',
     'Kuryeye Verildi': 'bg-blue-500 text-white',
+    'Kuryeye İstek Atıldı': 'bg-purple-500 text-white',
+    'Kurye Reddetti': 'bg-rose-600 text-white',
+    'Sipariş Havuza Atıldı': 'bg-blue-900 text-white',
     Yolda: 'bg-sky-500 text-white',
     'Teslim Edildi': 'bg-emerald-500 text-white',
-    İptal: 'bg-rose-500 text-white',
+    İptal: 'bg-neutral-400 text-white',
   };
   return (
     <span

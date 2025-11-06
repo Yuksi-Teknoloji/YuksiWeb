@@ -2,7 +2,7 @@
 'use client';
 
 import * as React from 'react';
-import { Loader2, RefreshCcw, Search, UserRoundCheck, CheckCircle2 } from 'lucide-react';
+import { Loader2, RefreshCcw, Search, UserRoundCheck, CheckCircle2, Inbox, Send, Trash2, X } from 'lucide-react';
 
 /* ================= Helpers ================= */
 function getAuthToken(): string | null {
@@ -96,6 +96,28 @@ type OrderItem = {
   created_at?: string | null;
   status?: string | null;
   total?: number | null;
+};
+
+/* ===== Pool Types (GET /api/Pool/my-orders) ===== */
+type PoolItem = {
+  order_id: string;
+  message: string;
+  // — yeni alanlar —
+  order_code?: string | null;
+  order_status?: string | null;
+  order_type?: string | null;
+  order_created_at?: string | null;
+  order_updated_at?: string | null;
+  delivery_address?: string | null;
+  pickup_lat?: string | null;
+  pickup_lng?: string | null;
+  dropoff_lat?: string | null;
+  dropoff_lng?: string | null;
+  customer_name?: string | null;
+  customer_phone?: string | null;
+  restaurant_name?: string | null;
+  restaurant_address?: string | null;
+  restaurant_phone?: string | null;
 };
 
 /* ================= Page ================= */
@@ -394,18 +416,98 @@ export default function AddOrderCourierPage() {
     }
   }
 
+  /* ===== POOL: POST / GET / DELETE ===== */
+  const [poolMsg, setPoolMsg] = React.useState<string>('');
+  const [poolOpen, setPoolOpen] = React.useState<boolean>(false);
+  const [poolLoading, setPoolLoading] = React.useState<boolean>(false);
+  const [poolError, setPoolError] = React.useState<string | null>(null);
+  const [poolItems, setPoolItems] = React.useState<PoolItem[]>([]);
+
+  async function poolCreate() {
+    if (!selectedOrderId) { err('Havuza atmak için önce bir sipariş seçin.'); return; }
+    setPoolLoading(true); setPoolError(null);
+    try {
+      const res = await fetch('/yuksi/Pool', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...headers },
+        body: JSON.stringify({ order_id: selectedOrderId, message: poolMsg || '' })
+      });
+      const j: any = await readJson(res);
+      if (!res.ok || j?.success === false) throw new Error(pickMsg(j, `HTTP ${res.status}`));
+      ok('Sipariş havuza gönderildi.');
+      setPoolMsg('');
+    } catch (e: any) {
+      setPoolError(e?.message || 'Havuza gönderilemedi.');
+      err(e?.message || 'Havuza gönderilemedi.');
+    } finally {
+      setPoolLoading(false);
+    }
+  }
+
+  async function poolLoad() {
+    setPoolLoading(true); setPoolError(null);
+    try {
+      const res = await fetch('/yuksi/Pool/my-orders', { cache: 'no-store', headers });
+      const j: any = await readJson(res);
+      if (!res.ok) throw new Error(pickMsg(j, `HTTP ${res.status}`));
+      const list: any[] = Array.isArray(j?.data) ? j.data : (Array.isArray(j) ? j : []);
+      const mapped: PoolItem[] = list.map((x) => ({
+        order_id: String(x?.order_id ?? ''),
+        message: x?.message ?? '',
+        order_code: x?.order_code ?? null,
+        order_status: x?.order_status ?? null,
+        order_type: x?.order_type ?? null,
+        order_created_at: x?.order_created_at ?? null,
+        order_updated_at: x?.order_updated_at ?? null,
+        delivery_address: x?.delivery_address ?? null,
+        pickup_lat: x?.pickup_lat ?? null,
+        pickup_lng: x?.pickup_lng ?? null,
+        dropoff_lat: x?.dropoff_lat ?? null,
+        dropoff_lng: x?.dropoff_lng ?? null,
+        customer_name: x?.customer_name ?? null,
+        customer_phone: x?.customer_phone ?? null,
+        restaurant_name: x?.restaurant_name ?? null,
+        restaurant_address: x?.restaurant_address ?? null,
+        restaurant_phone: x?.restaurant_phone ?? null,
+      })).filter((it) => it.order_id);
+      setPoolItems(mapped);
+    } catch (e: any) {
+      setPoolItems([]); setPoolError(e?.message || 'Havuz listesi alınamadı.');
+    } finally {
+      setPoolLoading(false);
+    }
+  }
+
+  async function poolDelete(orderId: string) {
+    setPoolLoading(true);
+    try {
+      const res = await fetch(`/yuksi/Pool/${encodeURIComponent(orderId)}`, {
+        method: 'DELETE',
+        headers
+      });
+      const j: any = await readJson(res);
+      if (!res.ok) throw new Error(pickMsg(j, `HTTP ${res.status}`));
+      ok('Havuz kaydı silindi.');
+      await poolLoad();
+    } catch (e: any) {
+      err(e?.message || 'Silme başarısız.');
+    } finally {
+      setPoolLoading(false);
+    }
+  }
+
   /* ===== UI ===== */
   const selectedOrder: OrderItem | null = orders.find((o: OrderItem) => o.id === selectedOrderId) || null;
 
   return (
     <div className="space-y-6">
-      {/* Üst şerit: Seçili sipariş */}
+      {/* Üst şerit: Seçili sipariş & Havuz butonları */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Kuryeye Sipariş Ata</h1>
           <p className="text-sm text-neutral-600">Aşağıdan bir sipariş seçin ve bir kuryeye atayın.</p>
         </div>
-        <div className="flex items-end gap-2">
+        <div className="flex flex-col sm:flex-row sm:items-end gap-2">
           <div className="grid">
             <label className="mb-1 text-xs font-medium text-neutral-600">Seçili Sipariş</label>
             <select
@@ -421,6 +523,38 @@ export default function AddOrderCourierPage() {
               ))}
             </select>
           </div>
+
+          {/* Havuza mesaj ve gönder butonu */}
+          <div className="grid">
+            <label className="mb-1 text-xs font-medium text-neutral-600">Havuz Mesajı (opsiyonel)</label>
+            <div className="flex items-stretch gap-2">
+              <input
+                value={poolMsg}
+                onChange={(e) => setPoolMsg(e.target.value)}
+                placeholder="Örn: Yakın kurye lazım"
+                className="rounded-xl border border-neutral-300 bg-white px-3 py-2 text-sm w-64"
+              />
+              <button
+                onClick={poolCreate}
+                disabled={!selectedOrderId || poolLoading}
+                className="inline-flex items-center gap-2 rounded-xl bg-orange-600 px-3 py-2 text-sm font-semibold text-white hover:bg-orange-700 disabled:opacity-60"
+                title="Siparişi havuza ata"
+              >
+                {poolLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                Havuza Ata
+              </button>
+            </div>
+          </div>
+
+          {/* Havuz listesi modal aç */}
+          <button
+            onClick={async () => { setPoolOpen(true); await poolLoad(); }}
+            className="inline-flex items-center gap-2 rounded-xl border border-neutral-300 bg-white px-3 py-2 text-sm hover:bg-neutral-50"
+            title="Havuz siparişlerini gör"
+          >
+            <Inbox className="h-4 w-4" />
+            Havuzum
+          </button>
         </div>
       </div>
 
@@ -645,7 +779,7 @@ export default function AddOrderCourierPage() {
                 value={qNearby}
                 onChange={(e) => setQNearby(e.target.value)}
                 placeholder="Kurye ara…"
-                className="w-48 rounded-lg border border-neutral-300 bg-white px-3 py-1.5 pl-8 text-sm outline-none focus:ring-2 focus:ring-sky-200"
+                className="w-48 rounded-lg border border-neutral-300 bg-white px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-sky-200"
               />
               <Search className="pointer-events-none absolute left-2 top-1.5 h-4 w-4 text-neutral-400" />
             </div>
@@ -728,6 +862,131 @@ export default function AddOrderCourierPage() {
           ) : (
             <span>Henüz sipariş seçilmedi.</span>
           )}
+        </div>
+      </div>
+
+      {/* POOL Modal */}
+      {poolOpen && (
+        <PoolModal
+          loading={poolLoading}
+          error={poolError}
+          items={poolItems}
+          onClose={() => setPoolOpen(false)}
+          onRefresh={poolLoad}
+          onDelete={poolDelete}
+        />
+      )}
+    </div>
+  );
+}
+
+/* ===== Pool Modal Component ===== */
+function PoolModal({
+  loading,
+  error,
+  items,
+  onClose,
+  onRefresh,
+  onDelete,
+}: {
+  loading: boolean;
+  error: string | null;
+  items: PoolItem[];
+  onClose: () => void;
+  onRefresh: () => void;
+  onDelete: (orderId: string) => void;
+}) {
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  return (
+    <div className="fixed inset-0 z-50">
+      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+      <div className="absolute left-1/2 top-12 w-[min(1024px,96vw)] -translate-x-1/2 rounded-2xl bg-white shadow-xl ring-1 ring-black/5 overflow-hidden max-h-[85vh]">
+        <div className="flex items-center justify-between border-b px-5 py-3">
+          <div className="flex items-center gap-2">
+            <Inbox className="h-5 w-5 text-orange-600" />
+            <h3 className="text-lg font-semibold">Havuz Siparişlerim</h3>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={onRefresh}
+              className="inline-flex items-center gap-2 rounded-md border border-neutral-300 bg-white px-3 py-1.5 text-sm hover:bg-neutral-50"
+              title="Yenile"
+            >
+              <RefreshCcw className="h-4 w-4" />
+              Yenile
+            </button>
+            <button
+              onClick={onClose}
+              className="rounded-md p-2 text-neutral-500 hover:bg-neutral-100"
+              aria-label="Kapat"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+        </div>
+
+        {loading && <div className="p-5 text-sm text-neutral-500">Yükleniyor…</div>}
+        {error && <div className="m-5 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div>}
+
+        <div className="p-5 overflow-auto">
+          <table className="min-w-full table-fixed">
+            <thead>
+              <tr className="text-left text-xs text-neutral-500">
+                <th className="px-3 py-2 w-[210px]">Order (ID • Kod)</th>
+                <th className="px-3 py-2 w-[180px]">Durum • Tip</th>
+                <th className="px-3 py-2 w-[220px]">Tarih (Oluşturma / Güncelleme)</th>
+                <th className="px-3 py-2">Adres/Mesaj</th>
+                <th className="px-3 py-2 w-[100px]">Müşteri</th>
+                <th className="px-3 py-2 w-28">İşlem</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((it) => (
+                <tr key={it.order_id} className="border-t align-top text-sm">
+                  <td className="px-3 py-2">
+                    <div className="font-mono text-[12px] break-all">{it.order_id}</div>
+                    <div className="text-xs text-neutral-500">{it.order_code ? `#${it.order_code}` : '—'}</div>
+                  </td>
+                  <td className="px-3 py-2">
+                    <div className="text-xs">{it.order_status ?? '—'}</div>
+                    <div className="text-xs text-neutral-500">{it.order_type ?? '—'}</div>
+                  </td>
+                  <td className="px-3 py-2">
+                    <div className="text-xs">{fmtDT(it.order_created_at)}</div>
+                    <div className="text-xs text-neutral-500">{fmtDT(it.order_updated_at)}</div>
+                  </td>
+                  <td className="px-3 py-2">
+                    <div className="text-xs">{it.delivery_address || '—'}</div>
+                    <div className="mt-1 rounded border border-neutral-200 bg-neutral-50 px-2 py-1 text-[11px] text-neutral-700">
+                      {it.message || '—'}
+                    </div>
+                  </td>
+                  <td className="px-3 py-2">
+                    <div className="text-xs">{it.customer_name || '—'}</div>
+                    <div className="text-xs text-neutral-500">{it.customer_phone || '—'}</div>
+                  </td>
+                  <td className="px-3 py-2">
+                    <button
+                      onClick={() => onDelete(it.order_id)}
+                      className="inline-flex items-center gap-2 rounded-md bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-700"
+                      title="Havuzdan sil"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      Sil
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {items.length === 0 && !loading && (
+                <tr><td colSpan={8} className="px-3 py-6 text-center text-sm text-neutral-500">Havuzda kayıt yok.</td></tr>
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
     </div>
