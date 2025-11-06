@@ -35,12 +35,10 @@ export default function ChartPie({ data, title }) {
       value,
     }));
 
-  console.log(data);
-
   return (
-    <div className="w-full max-w-[500px] h-[300px] bg-white rounded-md shadow p-10">
+    <div className="w-full max-w-[500px] h-[300px] bg-white rounded-md shadow">
       <div className="flex justify-between">
-        <span className="text-black">{title}</span>
+        <span className="text-black p-1">{title}</span>
         <span className="text-black bg-gray-100 p-1 rounded">
           Toplam: {data.total}
         </span>
@@ -51,7 +49,7 @@ export default function ChartPie({ data, title }) {
             data={chart_data}
             dataKey="value"
             nameKey="name"
-            label={false}
+            label={true}
             innerRadius="50%"
           >
             {chart_data.map((_, i) => (
