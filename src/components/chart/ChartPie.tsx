@@ -1,6 +1,13 @@
 "use client";
 
-import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
+import {
+  Cell,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  Legend,
+} from "recharts";
 
 const COLORS = [
   "#EB75D9",
@@ -34,7 +41,9 @@ export default function ChartPie({ data, title }) {
     <div className="w-full max-w-[500px] h-[300px] bg-white rounded-md shadow p-10">
       <div className="flex justify-between">
         <span className="text-black">{title}</span>
-        <span className="text-black bg-gray-100 p-1 rounded">Toplam: {data.total}</span>
+        <span className="text-black bg-gray-100 p-1 rounded">
+          Toplam: {data.total}
+        </span>
       </div>
       <ResponsiveContainer width="100%" height="100%">
         <PieChart>
@@ -42,14 +51,20 @@ export default function ChartPie({ data, title }) {
             data={chart_data}
             dataKey="value"
             nameKey="name"
-            label={({ name, value }) => `${TypeTR[name] ?? name} - ${value}`}
+            label={false}
             innerRadius="50%"
           >
             {chart_data.map((_, i) => (
               <Cell key={i} fill={COLORS[i % COLORS.length]} />
             ))}
           </Pie>
-          <Tooltip />
+          <Tooltip
+            formatter={(value, name) => [
+              value,
+              TypeTR[name as keyof typeof TypeTR] ?? name,
+            ]}
+          />
+          <Legend formatter={(name) => TypeTR[name] ?? name}></Legend>
         </PieChart>
       </ResponsiveContainer>
     </div>
