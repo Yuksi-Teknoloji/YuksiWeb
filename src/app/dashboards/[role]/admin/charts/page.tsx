@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import ChartPie from "@/components/chart/ChartPie";
+import { ChartPie } from "@/components/chart/Chart";
 import { getAuthToken } from "@/utils/auth";
 
 async function readJson<T = any>(res: Response): Promise<T> {
@@ -45,5 +45,8 @@ export default function Charts() {
         <ChartPie data={data} title={"Hesap Türleri"} />
       </div>
     );
+  }
+  else{
+    return "Forbidden: insufficient role";
   }
 }
