@@ -46,7 +46,4 @@ export default function Charts() {
       </div>
     );
   }
-  else{
-    return "Forbidden: insufficient role";
-  }
 }
