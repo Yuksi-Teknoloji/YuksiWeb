@@ -1,11 +1,11 @@
 // src/app/dashboards/[role]/admin/user-list/page.tsx
-'use client';
+"use client";
 
-import * as React from 'react';
-import Link from 'next/link';
-import { useParams, useSearchParams } from 'next/navigation';
-import Modal from '@/components/UI/Modal';
-import { getAuthToken } from '@/utils/auth';
+import * as React from "react";
+import Link from "next/link";
+import { useParams, useSearchParams } from "next/navigation";
+import Modal from "@/components/UI/Modal";
+import { getAuthToken } from "@/utils/auth";
 
 /** ======================== API TYPES ======================== **/
 type CourierFromApi = {
@@ -81,12 +81,18 @@ type UsersAllResponse = {
   message?: string;
   data?: {
     users?: UsersBuckets;
-    totals?: { couriers: number; restaurants: number; admins: number; dealers: number; total: number };
+    totals?: {
+      couriers: number;
+      restaurants: number;
+      admins: number;
+      dealers: number;
+      total: number;
+    };
   };
 };
 
 /** ======================== UI TYPES ======================== **/
-type RowType = 'courier' | 'restaurant' | 'admin' | 'dealer' | 'unknown';
+type RowType = "courier" | "restaurant" | "admin" | "dealer" | "unknown";
 
 type UserRow = {
   id: string;
@@ -99,14 +105,14 @@ type UserRow = {
 };
 
 type DetailUser =
-  | ({ type: 'courier' } & CourierFromApi)
-  | ({ type: 'restaurant' } & RestaurantFromApi)
-  | ({ type: 'admin' } & AdminFromApi)
-  | ({ type: 'dealer' } & DealerFromApi);
+  | ({ type: "courier" } & CourierFromApi)
+  | ({ type: "restaurant" } & RestaurantFromApi)
+  | ({ type: "admin" } & AdminFromApi)
+  | ({ type: "dealer" } & DealerFromApi);
 
 /** ======================== HELPERS ======================== **/
 async function readJson<T = any>(res: Response): Promise<T> {
-  const txt = await res.text().catch(() => '');
+  const txt = await res.text().catch(() => "");
   try {
     return txt ? JSON.parse(txt) : ({} as any);
   } catch {
@@ -123,16 +129,21 @@ export default function AdminUserListPage() {
   const sp = useSearchParams();
 
   const [rows, setRows] = React.useState<UserRow[]>([]);
-  const [rawDetails, setRawDetails] = React.useState<Record<string, DetailUser>>({});
-  const [totals, setTotals] = React.useState<UsersAllResponse['data'] extends { totals: infer T } ? T : any>();
-  const [q, setQ] = React.useState(sp.get('q') ?? '');
-  const [filterType, setFilterType] = React.useState<RowType | 'all'>('all');
+  const [rawDetails, setRawDetails] = React.useState<
+    Record<string, DetailUser>
+  >({});
+  const [totals, setTotals] =
+    React.useState<
+      UsersAllResponse["data"] extends { totals: infer T } ? T : any
+    >();
+  const [q, setQ] = React.useState(sp.get("q") ?? "");
+  const [filterType, setFilterType] = React.useState<RowType | "all">("all");
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
   const token = React.useMemo(getAuthToken, []);
   const headers = React.useMemo<HeadersInit>(() => {
-    const h: HeadersInit = { Accept: 'application/json' };
+    const h: HeadersInit = { Accept: "application/json" };
     if (token) (h as any).Authorization = `Bearer ${token}`;
     return h;
   }, [token]);
@@ -143,11 +154,11 @@ export default function AdminUserListPage() {
     try {
       // Swagger ekranındaki endpoint: GET /api/admin/users/all
       // rewrite kuralı: /yuksi/:path* → https://www.yuksi.dev/api/:path*
-      const url = new URL('/yuksi/admin/users/all', window.location.origin);
+      const url = new URL("/yuksi/admin/users/all", window.location.origin);
       // istersen buraya query ekleyebilirsin (type, search, limit, offset)
       // url.searchParams.set('type', 'all');
       // url.searchParams.set('search', '');
-      const res = await fetch(url.toString(), { cache: 'no-store', headers });
+      const res = await fetch(url.toString(), { cache: "no-store", headers });
       const data = (await readJson<UsersAllResponse>(res)) as UsersAllResponse;
       if (!res.ok) throw new Error(errMsg(data, `HTTP ${res.status}`));
 
@@ -160,66 +171,69 @@ export default function AdminUserListPage() {
       // couriers
       (buckets.couriers ?? []).forEach((u) => {
         const id = String(u.userId);
-        dict[id] = { type: 'courier', ...u };
+        dict[id] = { type: "courier", ...u };
         list.push({
           id,
-          type: 'courier',
-          name: [u.firstName, u.lastName].filter(Boolean).join(' ').trim() || '-',
-          phone: u.phone || '-',
-          createdAt: u.createdAt ?? '-',
+          type: "courier",
+          name:
+            [u.firstName, u.lastName].filter(Boolean).join(" ").trim() || "-",
+          phone: u.phone || "-",
+          createdAt: u.createdAt ?? "-",
           city: u.stateName || u.countryName || undefined,
-          status: u.isActive ? 'Aktif' : u.deleted ? 'Silinmiş' : 'Pasif',
+          status: u.isActive ? "Aktif" : u.deleted ? "Silinmiş" : "Pasif",
         });
       });
 
       // restaurants
       (buckets.restaurants ?? []).forEach((u) => {
         const id = String(u.userId);
-        dict[id] = { type: 'restaurant', ...u };
+        dict[id] = { type: "restaurant", ...u };
         list.push({
           id,
-          type: 'restaurant',
-          name: u.name || '-',
-          phone: u.phone || '-',
-          createdAt: u.createdAt ?? '-',
+          type: "restaurant",
+          name: u.name || "-",
+          phone: u.phone || "-",
+          createdAt: u.createdAt ?? "-",
           city: u.fullAddress || u.addressLine1 || undefined,
-          status: 'Aktif', // API durum vermiyor; istersen null bırak
+          status: "Aktif", // API durum vermiyor; istersen null bırak
         });
       });
 
       // admins
       (buckets.admins ?? []).forEach((u) => {
         const id = String(u.userId);
-        dict[id] = { type: 'admin', ...u };
+        dict[id] = { type: "admin", ...u };
         list.push({
           id,
-          type: 'admin',
-          name: [u.firstName, u.lastName].filter(Boolean).join(' ').trim() || '-',
-          phone: u.email || '-',
-          createdAt: u.createdAt ?? '-',
-          status: 'Aktif',
+          type: "admin",
+          name:
+            [u.firstName, u.lastName].filter(Boolean).join(" ").trim() || "-",
+          phone: u.email || "-",
+          createdAt: u.createdAt ?? "-",
+          status: "Aktif",
         });
       });
 
       // dealers
       (buckets.dealers ?? []).forEach((u) => {
         const id = String(u.userId);
-        dict[id] = { type: 'dealer', ...u };
+        dict[id] = { type: "dealer", ...u };
         list.push({
           id,
-          type: 'dealer',
-          name: [u.name, u.surname].filter(Boolean).join(' ').trim() || '-',
-          phone: u.phone || '-',
-          createdAt: u.createdAt ?? '-',
-          city: [u.cityName, u.stateName].filter(Boolean).join(' / ') || undefined,
-          status: u.status || 'Aktif',
+          type: "dealer",
+          name: [u.name, u.surname].filter(Boolean).join(" ").trim() || "-",
+          phone: u.phone || "-",
+          createdAt: u.createdAt ?? "-",
+          city:
+            [u.cityName, u.stateName].filter(Boolean).join(" / ") || undefined,
+          status: u.status || "Aktif",
         });
       });
 
       setRawDetails(dict);
       setRows(list);
     } catch (e: any) {
-      setError(e?.message || 'Kullanıcı listesi alınamadı.');
+      setError(e?.message || "Kullanıcı listesi alınamadı.");
       setRawDetails({});
       setRows([]);
     } finally {
@@ -234,13 +248,13 @@ export default function AdminUserListPage() {
   const filtered = React.useMemo(() => {
     const qq = q.trim().toLowerCase();
     return rows.filter((r) => {
-      if (filterType !== 'all' && r.type !== filterType) return false;
+      if (filterType !== "all" && r.type !== filterType) return false;
       if (!qq) return true;
       return (
         r.name.toLowerCase().includes(qq) ||
-        (r.phone || '').toLowerCase().includes(qq) ||
-        (r.city || '').toLowerCase().includes(qq) ||
-        (r.status || '').toLowerCase().includes(qq)
+        (r.phone || "").toLowerCase().includes(qq) ||
+        (r.city || "").toLowerCase().includes(qq) ||
+        (r.status || "").toLowerCase().includes(qq)
       );
     });
   }, [rows, q, filterType]);
@@ -257,8 +271,10 @@ export default function AdminUserListPage() {
   const toggleStatusLocal = (id: string) => {
     setRows((prev) =>
       prev.map((r) =>
-        r.id === id ? { ...r, status: r.status === 'Aktif' ? 'Pasif' : 'Aktif' } : r,
-      ),
+        r.id === id
+          ? { ...r, status: r.status === "Aktif" ? "Pasif" : "Aktif" }
+          : r
+      )
     );
   };
 
@@ -269,7 +285,9 @@ export default function AdminUserListPage() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between px-2 sm:px-0">
-        <h1 className="text-2xl font-semibold tracking-tight">Kullanıcı Listesi</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">
+          Kullanıcı Listesi
+        </h1>
         <div className="flex items-center gap-2">
           <button
             onClick={fetchUsers}
@@ -283,11 +301,21 @@ export default function AdminUserListPage() {
       {/* Totals strip */}
       {totals && (
         <div className="flex flex-wrap gap-3 text-sm text-neutral-700">
-          <span className="rounded-lg border px-3 py-1.5 bg-white">Toplam: {totals.total}</span>
-          <span className="rounded-lg border px-3 py-1.5 bg-white">Kurye: {totals.couriers}</span>
-          <span className="rounded-lg border px-3 py-1.5 bg-white">Restoran: {totals.restaurants}</span>
-          <span className="rounded-lg border px-3 py-1.5 bg-white">Admin: {totals.admins}</span>
-          <span className="rounded-lg border px-3 py-1.5 bg-white">Bayi: {totals.dealers}</span>
+          <span className="rounded-lg border px-3 py-1.5 max-h-10 bg-white">
+            Toplam: {totals.total}
+          </span>
+          <span className="rounded-lg border px-3 py-1.5 max-h-10 bg-white">
+            Kurye: {totals.couriers}
+          </span>
+          <span className="rounded-lg border px-3 py-1.5 max-h-10 bg-white">
+            Restoran: {totals.restaurants}
+          </span>
+          <span className="rounded-lg border px-3 py-1.5 max-h-10 bg-white">
+            Admin: {totals.admins}
+          </span>
+          <span className="rounded-lg border px-3 py-1.5 max-h-10 bg-white">
+            Bayi: {totals.dealers}
+          </span>
         </div>
       )}
 
@@ -314,7 +342,7 @@ export default function AdminUserListPage() {
             </select>
           </div>
           <div className="text-right text-sm text-neutral-500 self-center">
-            Toplam {filtered.length} kayıt{q ? ` (filtre: “${q}”)` : ''}
+            Toplam {filtered.length} kayıt{q ? ` (filtre: “${q}”)` : ""}
           </div>
         </div>
 
@@ -334,7 +362,10 @@ export default function AdminUserListPage() {
             <tbody>
               {loading && (
                 <tr>
-                  <td colSpan={6} className="px-6 py-8 text-center text-neutral-500">
+                  <td
+                    colSpan={6}
+                    className="px-6 py-8 text-center text-neutral-500"
+                  >
                     Yükleniyor…
                   </td>
                 </tr>
@@ -342,7 +373,10 @@ export default function AdminUserListPage() {
 
               {!loading && error && (
                 <tr>
-                  <td colSpan={6} className="px-6 py-8 text-center text-rose-600">
+                  <td
+                    colSpan={6}
+                    className="px-6 py-8 text-center text-rose-600"
+                  >
                     {error}
                   </td>
                 </tr>
@@ -351,15 +385,28 @@ export default function AdminUserListPage() {
               {!loading &&
                 !error &&
                 filtered.map((r) => (
-                  <tr key={r.id} className="border-t border-neutral-200/70 align-top">
-                    <td className="px-6 py-4 capitalize text-neutral-700">{r.type}</td>
+                  <tr
+                    key={r.id}
+                    className="border-t border-neutral-200/70 align-top"
+                  >
+                    <td className="px-6 py-4 capitalize text-neutral-700">
+                      {r.type}
+                    </td>
                     <td className="px-6 py-4">
-                      <div className="font-semibold text-neutral-900">{r.name}</div>
+                      <div className="font-semibold text-neutral-900">
+                        {r.name}
+                      </div>
                       <div className="text-sm text-neutral-500">{r.phone}</div>
                     </td>
-                    <td className="px-6 py-4 font-semibold text-neutral-900">{r.createdAt || '-'}</td>
-                    <td className="px-6 py-4 text-neutral-700">{r.city || '\u00A0'}</td>
-                    <td className="px-6 py-4 text-neutral-700">{r.status || '\u00A0'}</td>
+                    <td className="px-6 py-4 font-semibold text-neutral-900">
+                      {r.createdAt || "-"}
+                    </td>
+                    <td className="px-6 py-4 text-neutral-700">
+                      {r.city || "\u00A0"}
+                    </td>
+                    <td className="px-6 py-4 text-neutral-700">
+                      {r.status || "\u00A0"}
+                    </td>
                     <td className="px-6 py-4">
                       <div className="flex flex-wrap items-center gap-2">
                         <button
@@ -372,14 +419,16 @@ export default function AdminUserListPage() {
                         <button
                           onClick={() => toggleStatusLocal(r.id)}
                           className={[
-                            'rounded-lg px-3 py-1.5 text-sm font-semibold text-white',
-                            (r.status ?? 'Aktif') === 'Aktif'
-                              ? 'bg-emerald-500 hover:bg-emerald-600'
-                              : 'bg-orange-500 hover:bg-orange-600',
-                          ].join(' ')}
+                            "rounded-lg px-3 py-1.5 text-sm font-semibold text-white",
+                            (r.status ?? "Aktif") === "Aktif"
+                              ? "bg-emerald-500 hover:bg-emerald-600"
+                              : "bg-orange-500 hover:bg-orange-600",
+                          ].join(" ")}
                           title="Askıya Al / Aktif Et"
                         >
-                          {(r.status ?? 'Aktif') === 'Aktif' ? 'Askıya Al' : 'Aktif Et'}
+                          {(r.status ?? "Aktif") === "Aktif"
+                            ? "Askıya Al"
+                            : "Aktif Et"}
                         </button>
                         <button
                           onClick={() => removeLocal(r.id)}
@@ -401,7 +450,10 @@ export default function AdminUserListPage() {
 
               {!loading && !error && filtered.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-6 py-12 text-center text-sm text-neutral-500">
+                  <td
+                    colSpan={6}
+                    className="px-6 py-12 text-center text-sm text-neutral-500"
+                  >
                     Eşleşen kayıt bulunamadı.
                   </td>
                 </tr>
@@ -447,49 +499,62 @@ export default function AdminUserListPage() {
               <div className="font-medium capitalize">{detailUser.type}</div>
 
               {/* Tip'e göre temel alanlar */}
-              {detailUser.type === 'courier' && (
+              {detailUser.type === "courier" && (
                 <>
                   <div className="text-neutral-500">Ad Soyad</div>
                   <div className="font-medium">
-                    {(detailUser as any).firstName} {(detailUser as any).lastName}
+                    {(detailUser as any).firstName}{" "}
+                    {(detailUser as any).lastName}
                   </div>
                   <div className="text-neutral-500">Telefon</div>
-                  <div className="font-medium">{(detailUser as any).phone || '-'}</div>
+                  <div className="font-medium">
+                    {(detailUser as any).phone || "-"}
+                  </div>
                   <div className="text-neutral-500">Araç</div>
                   <div className="font-medium">
-                    {(detailUser as any).vehicleType ?? '-'} / yıl {(detailUser as any).vehicleYear ?? '-'}
+                    {(detailUser as any).vehicleType ?? "-"} / yıl{" "}
+                    {(detailUser as any).vehicleYear ?? "-"}
                   </div>
                 </>
               )}
 
-              {detailUser.type === 'restaurant' && (
+              {detailUser.type === "restaurant" && (
                 <>
                   <div className="text-neutral-500">Ad</div>
-                  <div className="font-medium">{(detailUser as any).name || '-'}</div>
+                  <div className="font-medium">
+                    {(detailUser as any).name || "-"}
+                  </div>
                   <div className="text-neutral-500">Adres</div>
-                  <div className="font-medium">{(detailUser as any).fullAddress || '-'}</div>
+                  <div className="font-medium">
+                    {(detailUser as any).fullAddress || "-"}
+                  </div>
                 </>
               )}
 
-              {detailUser.type === 'admin' && (
+              {detailUser.type === "admin" && (
                 <>
                   <div className="text-neutral-500">Ad Soyad</div>
                   <div className="font-medium">
-                    {(detailUser as any).firstName} {(detailUser as any).lastName}
+                    {(detailUser as any).firstName}{" "}
+                    {(detailUser as any).lastName}
                   </div>
                   <div className="text-neutral-500">E-posta</div>
-                  <div className="font-medium">{(detailUser as any).email || '-'}</div>
+                  <div className="font-medium">
+                    {(detailUser as any).email || "-"}
+                  </div>
                 </>
               )}
 
-              {detailUser.type === 'dealer' && (
+              {detailUser.type === "dealer" && (
                 <>
                   <div className="text-neutral-500">Ad Soyad</div>
                   <div className="font-medium">
                     {(detailUser as any).name} {(detailUser as any).surname}
                   </div>
                   <div className="text-neutral-500">Adres</div>
-                  <div className="font-medium">{(detailUser as any).address || '-'}</div>
+                  <div className="font-medium">
+                    {(detailUser as any).address || "-"}
+                  </div>
                 </>
               )}
             </div>
