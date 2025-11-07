@@ -4,19 +4,18 @@
 import * as React from 'react';
 import Image from 'next/image';
 import { decodeJwt, type JwtClaims } from '@/utils/jwt';
+import MapPicker, { type GeoPoint } from '@/components/map/MapPicker';
 
 /** -------- helpers (token) -------- */
 function getAuthToken(): string | null {
   if (typeof window === 'undefined') return null;
   try {
-    // projede en sık kullanılan anahtarı öne al
     const keys = ['auth_token', 'token', 'authToken', 'access_token', 'jwt'];
     for (const k of keys) {
       const v = localStorage.getItem(k);
       if (v && v.trim()) return v.trim();
     }
   } catch {}
-  // cookie fallback
   if (typeof document !== 'undefined') {
     const m =
       document.cookie.match(/(?:^|;\s*)auth_token=([^;]+)/) ||
@@ -43,6 +42,10 @@ type ApiProfile = {
   addressLine2: string;
   openingHour: string;
   closingHour: string;
+
+  // konum
+  latitude: string;   // input için string
+  longitude: string;  // input için string
 };
 
 export default function RestaurantProfilePage() {
@@ -57,6 +60,8 @@ export default function RestaurantProfilePage() {
     addressLine2: '',
     openingHour: '',
     closingHour: '',
+    latitude: '',
+    longitude: '',
   });
 
   const [editing, setEditing] = React.useState({
@@ -67,6 +72,8 @@ export default function RestaurantProfilePage() {
     addressLine2: false,
     openingHour: false,
     closingHour: false,
+    latitude: false,
+    longitude: false,
   });
 
   const [loading, setLoading] = React.useState(true);
@@ -111,22 +118,11 @@ export default function RestaurantProfilePage() {
         const j = txt ? JSON.parse(txt) : null;
 
         if (!res.ok || j?.success === false) {
-          const msg =
-            j?.message || j?.detail || j?.title || `HTTP ${res.status}`;
+          const msg = j?.message || j?.detail || j?.title || `HTTP ${res.status}`;
           throw new Error(msg);
         }
 
-        // Esnek parse: direkt obje, {data:{...}} ya da {result:{...}}
-        const data: ApiProfile =
-          j?.data ?? j?.result ?? j ?? {
-            email: '',
-            phone: '',
-            contactPerson: '',
-            addressLine1: '',
-            addressLine2: '',
-            openingHour: '',
-            closingHour: '',
-          };
+        const data = j?.data ?? j?.result ?? j ?? {};
 
         if (!alive) return;
         setForm({
@@ -137,7 +133,9 @@ export default function RestaurantProfilePage() {
           addressLine2: data.addressLine2 ?? '',
           openingHour: data.openingHour ?? '',
           closingHour: data.closingHour ?? '',
-        });
+          latitude: data.latitude != null ? String(data.latitude) : '',
+          longitude: data.longitude != null ? String(data.longitude) : '',
+        } as ApiProfile);
       } catch (e: any) {
         if (!alive) return;
         setErrMsg(e?.message || 'Profil bilgileri alınamadı.');
@@ -146,10 +144,26 @@ export default function RestaurantProfilePage() {
       }
     })();
 
-    return () => {
-      alive = false;
-    };
+    return () => { alive = false; };
   }, [restaurantId, token]);
+
+  /** ---- MapPicker senkronizasyonu ---- */
+  // inputtaki string değerlerden MapPicker için GeoPoint üret
+  const mapValue: GeoPoint | null = React.useMemo(() => {
+    const lat = Number(form.latitude);
+    const lng = Number(form.longitude);
+    if (Number.isFinite(lat) && Number.isFinite(lng)) return { lat, lng };
+    return null;
+  }, [form.latitude, form.longitude]);
+
+  // MapPicker'da bir konum seçilince inputlara yaz
+  const onPickFromMap = (p: GeoPoint) => {
+    setForm((prev) => ({
+      ...prev,
+      latitude: String(Number(p.lat.toFixed(6))),
+      longitude: String(Number(p.lng.toFixed(6))),
+    }));
+  };
 
   /** 3) Kaydet */
   async function saveAll() {
@@ -158,6 +172,23 @@ export default function RestaurantProfilePage() {
     setOkMsg(null);
     setErrMsg(null);
     try {
+      const lat = form.latitude.trim();
+      const lng = form.longitude.trim();
+      const latNum = lat === '' ? undefined : Number(lat);
+      const lngNum = lng === '' ? undefined : Number(lng);
+
+      const body: any = {
+        email: form.email,
+        phone: form.phone,
+        contactPerson: form.contactPerson,
+        addressLine1: form.addressLine1,
+        addressLine2: form.addressLine2,
+        openingHour: form.openingHour,
+        closingHour: form.closingHour,
+      };
+      if (!Number.isNaN(latNum!)) body.latitude = latNum;
+      if (!Number.isNaN(lngNum!)) body.longitude = lngNum;
+
       const res = await fetch(`/yuksi/Restaurant/${restaurantId}/profile`, {
         method: 'PUT',
         headers: {
@@ -165,15 +196,14 @@ export default function RestaurantProfilePage() {
           Accept: 'application/json',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify(form),
+        body: JSON.stringify(body),
       });
 
       const txt = await res.text();
       const j = txt ? JSON.parse(txt) : null;
 
       if (!res.ok || j?.success === false) {
-        const msg =
-          j?.message || j?.detail || j?.title || `HTTP ${res.status}`;
+        const msg = j?.message || j?.detail || j?.title || `HTTP ${res.status}`;
         throw new Error(msg);
       }
 
@@ -186,6 +216,8 @@ export default function RestaurantProfilePage() {
         addressLine2: false,
         openingHour: false,
         closingHour: false,
+        latitude: false,
+        longitude: false,
       });
     } catch (e: any) {
       setErrMsg(e?.message || 'Profil güncellenemedi.');
@@ -240,6 +272,44 @@ export default function RestaurantProfilePage() {
                 />
                 <EditButton onClick={() => toggle('addressLine2')} active={editing.addressLine2} />
               </Row>
+            </Block>
+
+            {/* Konum: input + harita (iki yönlü senkron) */}
+            <Block title="Konum">
+              <Row>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  placeholder="Enlem (örn: 36.480965)"
+                  className="w-full rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-800 outline-none disabled:bg-white"
+                  value={form.latitude}
+                  onChange={onChange('latitude')}
+                  disabled={!editing.latitude}
+                />
+                <EditButton onClick={() => toggle('latitude')} active={editing.latitude} />
+              </Row>
+              <Row>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  placeholder="Boylam (örn: 36.356617)"
+                  className="w-full rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-800 outline-none disabled:bg-white"
+                  value={form.longitude}
+                  onChange={onChange('longitude')}
+                  disabled={!editing.longitude}
+                />
+                <EditButton onClick={() => toggle('longitude')} active={editing.longitude} />
+              </Row>
+
+              {/* Harita seçimi — her zaman aktif; inputlar kilitli olsa da haritadan seçim yazılır */}
+              <div className="mt-3">
+                <MapPicker
+                  label="Haritada Konum Seç"
+                  value={mapValue}
+                  onChange={onPickFromMap}
+                  defaultCenter={{ lat: 41.015137, lng: 28.97953 }}
+                />
+              </div>
             </Block>
 
             <Block title="İletişim">

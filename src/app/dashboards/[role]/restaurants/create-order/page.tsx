@@ -23,6 +23,7 @@ function decodeJwtPayload(token: string | null | undefined): any | null {
   if (parts.length < 2) return null;
   try {
     const json = atob(parts[1].replace(/-/g, '+').replace(/_/g, '/'));
+    // @ts-ignore
     return JSON.parse(decodeURIComponent(escape(json)));
   } catch { return null; }
 }
@@ -58,6 +59,10 @@ export default function RestaurantOrderCreate() {
   const [cargoType, setCargoType] = React.useState('');
   const [special, setSpecial] = React.useState('');
 
+  // kullanıcı elle yazdı mı? (otomatik doldurmayı engellemek için)
+  const [addressDirty, setAddressDirty] = React.useState(false);
+  const [deliveryDirty, setDeliveryDirty] = React.useState(false);
+
   // MENÜ: ürün ve fiyatlar bu listeden gelir
   const [menu, setMenu] = React.useState<MenuItem[]>([]);
   const [menuLoading, setMenuLoading] = React.useState(false);
@@ -80,7 +85,7 @@ export default function RestaurantOrderCreate() {
   const [ok, setOk] = React.useState<string | null>(null);
   const [err, setErr] = React.useState<string | null>(null);
 
-  // Mount: token’dan userId/restaurantId çıkar, restoran konumunu yükle
+  // Mount: token’dan userId/restaurantId çıkar, önce LS, ardından profil endpoint’inden pickup’ı getir
   React.useEffect(() => {
     const token = getAuthToken();
     const payload = decodeJwtPayload(token || undefined);
@@ -89,7 +94,6 @@ export default function RestaurantOrderCreate() {
       (payload?.userId && String(payload.userId)) ||
       (payload?.sub && String(payload.sub)) || null;
 
-    // backend tek restoran yetkiliyse restaurant_id = sub olabilir
     const ridFromLS = typeof window !== 'undefined' ? localStorage.getItem('restaurant_id') : null;
     const rid = ridFromLS || uid;
 
@@ -98,6 +102,7 @@ export default function RestaurantOrderCreate() {
     if (!rid) setIdErr('Token içinde restaurant_id/userId bulunamadı.');
     else setIdErr(null);
 
+    // 1) LocalStorage’dan varsa geçici olarak yükle (hızlı başlangıç)
     try {
       const saved = localStorage.getItem('restaurant_geo');
       if (saved) {
@@ -107,7 +112,39 @@ export default function RestaurantOrderCreate() {
     } catch {}
   }, []);
 
-  // MENÜYÜ YÜKLE (sadece yetkili restoranın menüsü döner)
+  // 2) Restoran profilinden konumu otomatik çek (profil endpointi)
+  React.useEffect(() => {
+    if (!restaurantId) return;
+    (async () => {
+      try {
+        const token = getAuthToken();
+        const res = await fetch(`/yuksi/Restaurant/${restaurantId}/profile`, {
+          headers: {
+            Accept: 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          cache: 'no-store',
+        });
+        const j: any = await readJson(res);
+        if (!res.ok) throw new Error(pickMsg(j, `HTTP ${res.status}`));
+
+        const d = j?.data ?? j?.result ?? j ?? {};
+        const lat = d?.latitude != null ? Number(d.latitude) : NaN;
+        const lng = d?.longitude != null ? Number(d.longitude) : NaN;
+
+        if (Number.isFinite(lat) && Number.isFinite(lng)) {
+          const addr = [d?.addressLine1, d?.addressLine2].filter(Boolean).join(', ');
+          const gp: GeoPoint = { lat, lng, address: addr || undefined };
+          setPickup(gp);
+          try { localStorage.setItem('restaurant_geo', JSON.stringify(gp)); } catch {}
+        }
+      } catch {
+        /* sessizce geç; LS veya manuel seçim devam eder */
+      }
+    })();
+  }, [restaurantId]);
+
+  // MENÜYÜ YÜKLE
   const loadMenu = React.useCallback(async () => {
     setMenuLoading(true); setMenuErr(null);
     try {
@@ -156,6 +193,19 @@ export default function RestaurantOrderCreate() {
     setItems(p => (p.length > 1 ? p.filter(x => x.id !== rowId) : p));
   }
 
+  // ✅ Adres otomatik doldurma
+  React.useEffect(() => {
+    // Sadece ADRES alanına pickup.address yaz
+    if (pickup?.address && !addressDirty) setAddress(pickup.address);
+
+    // Sadece TESLİMAT ADRESİNE dropoff.address yaz
+    if (dropoff?.address && !deliveryDirty) setDeliveryAddress(dropoff.address);
+  }, [pickup?.address, dropoff?.address, addressDirty, deliveryDirty]);
+
+  // kullanıcı manuel yazarsa dirty bayrağını işaretle
+  const onAddressChange = (v: string) => { setAddressDirty(true); setAddress(v); };
+  const onDeliveryAddressChange = (v: string) => { setDeliveryDirty(true); setDeliveryAddress(v); };
+
   // pickup konumunu LS'de tut
   React.useEffect(() => {
     if (!pickup?.lat || !pickup?.lng) return;
@@ -168,14 +218,18 @@ export default function RestaurantOrderCreate() {
 
     if (!restaurantId) { setErr(idErr || 'Restaurant ID yok.'); return; }
     if (!pickup?.lat || !pickup?.lng) { setErr('Restoran konumunu (pickup) seçin.'); return; }
+
     const needDrop = type !== 'yerinde';
     const effectiveDropoff: GeoPoint | null = needDrop ? dropoff : (dropoff ?? pickup);
-    if (!effectiveDropoff?.lat || !effectiveDropoff?.lng) { setErr('Teslimat konumunu (dropoff) seçin.'); return; }
+    if (needDrop && (!effectiveDropoff?.lat || !effectiveDropoff?.lng)) {
+      setErr('Teslimat konumunu (dropoff) seçin.');
+      return;
+    }
 
     const cleanItems = items
       .filter(i => i.menu_id && i.product_name && i.quantity > 0)
       .map(i => ({
-        product_name: i.product_name, // backend şu an isim+fiyat bekliyor
+        product_name: i.product_name,
         price: +Number(i.price || 0).toFixed(2),
         quantity: Number(i.quantity || 0),
       }));
@@ -188,11 +242,12 @@ export default function RestaurantOrderCreate() {
         customer: customer.trim(),
         phone: phone.trim(),
         address: address.trim(),
+        // teslimat adresi: dropoff’tan gelen (yoksa address fallback)
         delivery_address: (deliveryAddress || address).trim(),
         pickup_lat: +Number(pickup.lat).toFixed(6),
         pickup_lng: +Number(pickup.lng).toFixed(6),
-        dropoff_lat: +Number(effectiveDropoff.lat).toFixed(6),
-        dropoff_lng: +Number(effectiveDropoff.lng).toFixed(6),
+        dropoff_lat: effectiveDropoff?.lat != null ? +Number(effectiveDropoff.lat).toFixed(6) : undefined,
+        dropoff_lng: effectiveDropoff?.lng != null ? +Number(effectiveDropoff.lng).toFixed(6) : undefined,
         type,
         amount: +amount.toFixed(2),
         carrier_type: carrierType || 'kurye',
@@ -221,6 +276,7 @@ export default function RestaurantOrderCreate() {
       setCargoType(''); setSpecial('');
       setItems([{ id: crypto.randomUUID(), product_name: '', price: 0, quantity: 1 }]);
       setDropoff(null);
+      setAddressDirty(false); setDeliveryDirty(false);
     } catch (ex: any) {
       setErr(ex?.message || 'Sipariş gönderilemedi.');
     } finally {
@@ -249,12 +305,23 @@ export default function RestaurantOrderCreate() {
             <input value={phone} onChange={e=>setPhone(e.target.value)} required className="w-full rounded-xl border px-3 py-2"/>
           </div>
           <div>
-            <label className="mb-1 block text-sm font-medium">Adres</label>
-            <input value={address} onChange={e=>setAddress(e.target.value)} required className="w-full rounded-xl border px-3 py-2"/>
+            <label className="mb-1 block text-sm font-medium">Restoran Adresi</label>
+            <input
+              value={address}
+              onChange={e=>onAddressChange(e.target.value)}
+              required
+              className="w-full rounded-xl border px-3 py-2"
+              placeholder="Haritadan seçince otomatik dolar"
+            />
           </div>
           <div>
             <label className="mb-1 block text-sm font-medium">Teslimat Adresi</label>
-            <input value={deliveryAddress} onChange={e=>setDeliveryAddress(e.target.value)} className="w-full rounded-xl border px-3 py-2" placeholder="Boş bırakılırsa Adres kullanılır"/>
+            <input
+              value={deliveryAddress}
+              onChange={e=>onDeliveryAddressChange(e.target.value)}
+              className="w-full rounded-xl border px-3 py-2"
+              placeholder="Dropoff haritasından seçince otomatik dolar"
+            />
           </div>
           <div>
             <label className="mb-1 block text-sm font-medium">Sipariş Tipi</label>
@@ -307,11 +374,11 @@ export default function RestaurantOrderCreate() {
           />
         </div>
         <p className="mt-2 text-xs text-neutral-500">
-          Not: “Yerinde” tipinde dropoff otomatik olarak restoran konumuna eşitlenir.
+          Not: Teslimat adresi haritadan seçilince otomatik dolar; istersen elle değiştirebilirsin.
         </p>
       </section>
 
-      {/* Kalemler: Ürün seç + adet (fiyat menüden otomatik) */}
+      {/* Kalemler */}
       <section className="rounded-2xl border border-neutral-200/70 bg-white p-6 shadow-sm">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold">Kalemler</h2>
@@ -338,7 +405,6 @@ export default function RestaurantOrderCreate() {
                 ))}
               </select>
 
-              {/* Fiyat menüden gelir, düzenlenemez */}
               <input
                 value={it.price ? it.price.toFixed(2) : ''}
                 readOnly
