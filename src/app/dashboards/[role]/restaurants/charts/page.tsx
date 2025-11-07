@@ -3,6 +3,7 @@ import * as React from "react";
 import { ChartLine } from "@/components/chart/RestaurantChart";
 import { getAuthToken } from "@/utils/auth";
 import { useSearchParams } from "next/navigation";
+import { ChartPie } from "@/components/chart/RestaurantChart";
 
 async function readJson<T = any>(res: Response): Promise<T> {
   const txt = await res.text().catch(() => "");
@@ -106,6 +107,7 @@ export default function Charts() {
     ridFromQuery || tokenInfo.id || ridFromLS || null;
 
   const [restaurantId] = React.useState(resolvedRestaurantId);
+  const [dataWithRange, setDataWithRange] = React.useState<any[] | null>(null);
   const [data, setData] = React.useState<any[] | null>(null);
   const [option, setOption] = React.useState("daily");
 
@@ -128,7 +130,7 @@ export default function Charts() {
     }
   }, [option]);
 
-  const fetchOrders = React.useCallback(async () => {
+  const fetchOrdersWithDateRange = React.useCallback(async () => {
     if (!restaurantId || !startDate || !endDate) return;
 
     const params = new URLSearchParams();
@@ -141,21 +143,37 @@ export default function Charts() {
     );
 
     const json = await readJson(res);
-    setData(json?.data);
+    setDataWithRange(json?.data);
   }, [restaurantId, headers, startDate, endDate]);
+
+  React.useEffect(() => {
+    fetchOrdersWithDateRange();
+  }, [fetchOrdersWithDateRange]);
+
+  const fetchOrders = React.useCallback(async () => {
+    if (!restaurantId) return;
+
+    const res = await fetch(`/yuksi/restaurant/${restaurantId}/order-history`, {
+      cache: "no-store",
+      headers,
+    });
+
+    const json = await readJson(res);
+    setData(json?.data.orders);
+  }, [restaurantId, headers]);
 
   React.useEffect(() => {
     fetchOrders();
   }, [fetchOrders]);
 
-  if (!data) return;
+  if (!dataWithRange || !data) return;
 
   return (
     <div className="flex flex-wrap justify-between gap-15">
       <div className="w-full max-w-[500px] h-[300px] bg-white rounded-md shadow">
         <div className="flex justify-between">
           <select
-            className="rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none ring-2 ring-transparent transition focus:ring-sky-200"
+            className="rounded border border-neutral-300 bg-white px-3 py-2 outline-none ring-2 ring-transparent transition focus:ring-sky-200"
             name="option"
             value={option}
             onChange={(e) => {
@@ -167,15 +185,26 @@ export default function Charts() {
             <option value="monthly">Aylık</option>
           </select>
           <span>Sipariş Gelirleri</span>
-          <span className="bg-gray-100 p-1 rounded">Toplam: {data.total_amount}</span>
+          <span className="bg-gray-100 p-1 rounded">
+            Genel Toplam: {dataWithRange.total_amount} &#8378;
+          </span>
         </div>
 
         <ChartLine
           startDate={startDate}
           endDate={endDate}
           option={option}
-          data={data}
+          data={dataWithRange}
         />
+      </div>
+      <div className="w-full max-w-[500px] h-[300px] bg-white rounded-md shadow">
+        <span className="flex justify-between">
+          <span className=" p-1">Sipariş Durumu</span>
+          <span className="bg-gray-100 p-1 rounded">
+            Sipariş Sayısı: {data.length}
+          </span>
+        </span>
+        <ChartPie data={data}/>
       </div>
     </div>
   );

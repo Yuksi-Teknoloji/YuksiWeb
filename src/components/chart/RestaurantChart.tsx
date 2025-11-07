@@ -8,9 +8,12 @@ import {
   XAxis,
   YAxis,
   Line,
-  CartesianGrid
+  CartesianGrid,
+  PieChart,
+  Pie,
+  Legend,
+  Cell,
 } from "recharts";
-
 
 function getDays(s, e) {
   const arr = [];
@@ -55,7 +58,7 @@ export function ChartLine({ startDate, endDate, option, data }) {
       <LineChart data={chart_data}>
         <XAxis dataKey="name" />
         <YAxis />
-        <Tooltip />
+        <Tooltip formatter={(value, name) => [value + " tl", name]} />
         <CartesianGrid />
         <Line
           type="monotone"
@@ -66,5 +69,38 @@ export function ChartLine({ startDate, endDate, option, data }) {
         />
       </LineChart>
     </ResponsiveContainer>
+  );
+}
+
+export function ChartPie({ data, title }) {
+  const orderByStatus = data.reduce((acc, o) => {
+      const status = o.status;
+      acc[status] = (acc[status] || 0) + 1;
+      return acc;
+    }, {});
+  
+  const chart_data = Object.entries(orderByStatus).map(([name, value]) => ({
+    name,
+    value,
+  }));
+
+  return (
+    <div className="w-full max-w-[500px] h-[300px] bg-white rounded-md shadow">
+      <ResponsiveContainer width="100%" height="100%">
+        <PieChart>
+          <Pie
+            data={chart_data}
+            dataKey="value"
+            nameKey="name"
+            label={true}
+            innerRadius="50%"
+          >
+          </Pie>
+          <Tooltip
+          />
+          <Legend></Legend>
+        </PieChart>
+      </ResponsiveContainer>
+    </div>
   );
 }
