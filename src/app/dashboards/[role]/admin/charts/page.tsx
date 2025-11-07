@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { ChartPie } from "@/components/chart/Chart";
+import { ChartPie } from "@/components/chart/AdminChart";
 import { getAuthToken } from "@/utils/auth";
 
 async function readJson<T = any>(res: Response): Promise<T> {

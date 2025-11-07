@@ -1,6 +1,6 @@
 "use client";
 import * as React from "react";
-import { ChartLine } from "@/components/chart/Chart";
+import { ChartLine } from "@/components/chart/RestaurantChart";
 import { getAuthToken } from "@/utils/auth";
 import { useSearchParams } from "next/navigation";
 
