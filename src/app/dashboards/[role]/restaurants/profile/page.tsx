@@ -156,12 +156,14 @@ export default function RestaurantProfilePage() {
     return null;
   }, [form.latitude, form.longitude]);
 
-  // MapPicker'da bir konum seçilince inputlara yaz
+  // MapPicker'da bir konum seçilince (Nominatim display_name dahil gelir) inputlara ve adrese yaz
   const onPickFromMap = (p: GeoPoint) => {
     setForm((prev) => ({
       ...prev,
       latitude: String(Number(p.lat.toFixed(6))),
       longitude: String(Number(p.lng.toFixed(6))),
+      // ✅ OSM reverse’den gelen display_name’i addressLine1’e bas
+      addressLine1: p.address ? String(p.address) : prev.addressLine1,
     }));
   };
 
@@ -301,7 +303,7 @@ export default function RestaurantProfilePage() {
                 <EditButton onClick={() => toggle('longitude')} active={editing.longitude} />
               </Row>
 
-              {/* Harita seçimi — her zaman aktif; inputlar kilitli olsa da haritadan seçim yazılır */}
+              {/* Harita seçimi — inputlar kilitli olsa da haritadan seçim yazılır */}
               <div className="mt-3">
                 <MapPicker
                   label="Haritada Konum Seç"
@@ -378,12 +380,12 @@ export default function RestaurantProfilePage() {
 
           <aside className="rounded-2xl border border-neutral-200/70 bg-white p-6">
             <div className="flex flex-col items-center text-center">
-              <div className="relative h-24 w-24">
+              <div className="relative h-40 w-40">
                 <Image
-                  src="/avatar-demo.jpg"
+                  src="/Brand/yuksi.png"
                   alt="profile"
                   fill
-                  className="rounded-full object-cover ring-4 ring-orange-100"
+                  className="rounded-full object-cover ring-4 ring-orange-500"
                 />
               </div>
               <div className="mt-4 space-y-2 text-sm">

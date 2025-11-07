@@ -2,7 +2,7 @@
 'use client';
 
 import * as React from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { getAuthToken } from '@/utils/auth';
 
 /* ================= helpers ================= */
@@ -49,6 +49,7 @@ type PackageStatus = {
   total_count?: number | null;
   remaining_packages?: number | null;
   has_package_left?: boolean | null;
+  warning_message?: string | null; // ✅
 };
 type ApiResponse = {
   success?: boolean;
@@ -59,6 +60,7 @@ type ApiResponse = {
 /* ================== Page =================== */
 export default function RestaurantPackageStatusPage() {
   const { role } = useParams<{ role: string }>();
+  const router = useRouter();
 
   const token = React.useMemo(getAuthToken, []);
   const headers = React.useMemo<HeadersInit>(() => bearerHeaders(token), [token]);
@@ -73,7 +75,6 @@ export default function RestaurantPackageStatusPage() {
   const load = React.useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      // rewrite: /yuksi/:path* → https://www.yuksi.dev/api/:path*
       const res = await fetch('/yuksi/PackagePrice/package-status', {
         headers,
         cache: 'no-store',
@@ -97,9 +98,12 @@ export default function RestaurantPackageStatusPage() {
 
   const maxPkg = data?.max_package ?? 0;
   const delivered = data?.delivered_count ?? 0;
-  const totalOrdered = data?.total_count ?? 0; // satın alınan paket adedi
-  const remaining = data?.remaining_packages ?? (Math.max(0, maxPkg - delivered));
+  const totalOrdered = data?.total_count ?? 0;
+  const remaining = data?.remaining_packages ?? Math.max(0, maxPkg - delivered);
   const percentUsed = pct(delivered, maxPkg || (delivered + remaining));
+
+  // ✅ paket bitti mi?
+  const outOfPackages = data?.has_package_left === false || remaining <= 0;
 
   return (
     <div className="space-y-6">
@@ -156,6 +160,25 @@ export default function RestaurantPackageStatusPage() {
               </span>
             )}
           </div>
+
+          {/* warning message (API'den geldiğinde göster) */}
+          {data?.warning_message && (
+            <div className="mt-3 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+              {data.warning_message}
+            </div>
+          )}
+
+          {/* ✅ Paket bitince satın alma butonu */}
+          {outOfPackages && (
+            <div className="mt-4 flex justify-end">
+              <button
+                onClick={() => router.push('/dashboards/restaurant/restaurants/buy-package')}
+                className="rounded-xl bg-rose-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-rose-700"
+              >
+                Paket Satın Al
+              </button>
+            </div>
+          )}
         </div>
       </section>
 
