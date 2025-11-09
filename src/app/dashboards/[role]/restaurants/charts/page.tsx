@@ -51,15 +51,10 @@ function getRestaurantIdFromToken(): { id: string | null; bearer?: string } {
 
 function getDayRange() {
   const now = new Date();
-  const day = now.getDay();
-  const diffToMonday = day === 0 ? -6 : 1 - day;
-  const monday = new Date(now);
-  monday.setDate(now.getDate() + diffToMonday);
+  const tomorrow = new Date(now);
+  tomorrow.setDate(now.getDate() + 1);
 
-  const sunday = new Date(monday);
-  sunday.setDate(monday.getDate() + 6);
-
-  return { start: monday, end: sunday };
+  return { start: now, end: tomorrow };
 }
 
 function getWeekRange() {
@@ -70,14 +65,14 @@ function getWeekRange() {
   monday.setDate(now.getDate() + diffToMonday);
 
   const sunday = new Date(monday);
-  sunday.setDate(monday.getDate() + 6);
+  sunday.setDate(monday.getDate() + 7);
 
   return { start: monday, end: sunday };
 }
 
 function getMonthRange() {
   const now = new Date();
-  const first = new Date(now.getFullYear(), now.getMonth(), 1);
+  const first = new Date(now.getFullYear(), now.getMonth());
   const last = new Date(now.getFullYear(), now.getMonth() + 1, 0);
   return { start: first, end: last };
 }
@@ -186,7 +181,7 @@ export default function Charts() {
           </select>
           <span>Sipariş Gelirleri</span>
           <span className="bg-gray-100 p-1 rounded">
-            Genel Toplam: {dataWithRange.total_amount} &#8378;
+            Toplam: {dataWithRange.total_amount} &#8378;
           </span>
         </div>
 

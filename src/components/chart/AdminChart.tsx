@@ -21,7 +21,7 @@ const COLORS = [
   "#D95F7E",
 ];
 
-export enum TypeTR {
+enum TypeTR {
   couriers = "Kurye",
   restaurants = "Restoran",
   admins = "Admin",
@@ -61,7 +61,7 @@ export function ChartPie({ data, title }) {
               TypeTR[name as keyof typeof TypeTR] ?? name,
             ]}
           />
-          <Legend formatter={(name) => TypeTR[name] ?? name}></Legend>
+          <Legend formatter={(name) => TypeTR[name as keyof typeof TypeTR] ?? name}></Legend>
         </PieChart>
       </ResponsiveContainer>
     </div>

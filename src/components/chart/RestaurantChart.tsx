@@ -18,7 +18,8 @@ import {
 function getDays(s, e) {
   const arr = [];
   let d = new Date(s);
-  while (d <= new Date(e)) {
+  while (d < new Date(e)) {
+    console.log(d);
     arr.push(d.toISOString().substring(0, 10));
     d.setDate(d.getDate() + 1);
   }
@@ -72,13 +73,33 @@ export function ChartLine({ startDate, endDate, option, data }) {
   );
 }
 
+const COLORS = [
+  "#EB75D9",
+  "#EB8175",
+  "#EB7593",
+  "#CE75EB",
+  "#DA91ED",
+  "#525B57",
+  "#DF5ADA",
+  "#D95F7E",
+];
+
+enum StatusTr {
+  hazirlaniyor = "Hazırlanıyor",
+  kurye_reddetti = "Kurye reddetti",
+  kuryeye_istek_atildi = "Kuryeye istek atıldı",
+  kuryeye_verildi = "Kuryeye verildi",
+  siparis_havuza_atildi = "Sipariş havuza atıldı",
+  teslim_edildi = "Teslim edildi",
+}
+
 export function ChartPie({ data, title }) {
   const orderByStatus = data.reduce((acc, o) => {
-      const status = o.status;
-      acc[status] = (acc[status] || 0) + 1;
-      return acc;
-    }, {});
-  
+    const status = o.status;
+    acc[status] = (acc[status] || 0) + 1;
+    return acc;
+  }, {});
+
   const chart_data = Object.entries(orderByStatus).map(([name, value]) => ({
     name,
     value,
@@ -95,10 +116,17 @@ export function ChartPie({ data, title }) {
             label={true}
             innerRadius="50%"
           >
+            {chart_data.map((_, i) => (
+              <Cell key={i} fill={COLORS[i % COLORS.length]} />
+            ))}
           </Pie>
           <Tooltip
+            formatter={(value, name) => [
+              value,
+              StatusTr[name as keyof typeof StatusTr] ?? name,
+            ]}
           />
-          <Legend></Legend>
+          <Legend formatter={(name) => StatusTr[name as keyof typeof StatusTr] ?? name}></Legend>
         </PieChart>
       </ResponsiveContainer>
     </div>
