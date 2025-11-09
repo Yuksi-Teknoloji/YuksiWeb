@@ -64,10 +64,13 @@ export default function Charts() {
     if (!option) return;
     setError(null);
     try {
-      const res = await fetch(`/yuksi/dealer/restaurants/${option}/order-history`, {
-        cache: "no-store",
-        headers,
-      });
+      const res = await fetch(
+        `/yuksi/dealer/restaurants/${option}/order-history`,
+        {
+          cache: "no-store",
+          headers,
+        }
+      );
 
       const json = await readJson(res);
 
@@ -88,14 +91,14 @@ export default function Charts() {
   }, [fetchOrders]);
 
   if (error) {
-    return <div className="p-10 text-rose-600 whitespace-pre-wrap">{error}</div>;
+    return (
+      <div className="p-10 text-rose-600 whitespace-pre-wrap">{error}</div>
+    );
   }
 
   if (!restaurants.length) {
     return <div className="p-10">Restoran bulunamadı.</div>;
   }
-
-  console.log(orders);
   
   return (
     <div className="flex flex-wrap justify-between gap-16">
