@@ -128,20 +128,6 @@ export const NAV: Record<Role, RawNavGroup[]> = {
     },
   ],
 
-  corporate: [
-    {
-      title: "Kurumsal",
-      items: [{ label: "Ana", path: "corporate" }],
-    },
-  ],
-
-  marketing: [
-    {
-      title: "Pazarlama",
-      items: [{ label: "Ana", path: "marketing" }],
-    },
-  ],
-
   restaurant: [
     {
       title: "Restoran",
