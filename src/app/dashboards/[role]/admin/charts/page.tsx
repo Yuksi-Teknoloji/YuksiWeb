@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { ChartPie } from "@/components/chart/AdminChart";
+
 import { getAuthToken } from "@/utils/auth";
 
 async function readJson<T = any>(res: Response): Promise<T> {
@@ -42,7 +42,7 @@ export default function Charts() {
   if (data) {
     return (
       <div className="flex flex-wrap justify-between gap-15">
-        <ChartPie data={data} title={"Hesap Türleri"} />
+        
       </div>
     );
   }
