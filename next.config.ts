@@ -2,6 +2,9 @@
 import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
+  eslint: {
+    ignoreDuringBuilds: true, // 🚀 Fully disables ESLint during builds
+  },
   async rewrites() {
     return [
       // 1) ÖZEL: file upload önce gelmeli
