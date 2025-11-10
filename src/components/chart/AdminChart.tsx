@@ -28,7 +28,12 @@ export enum TypeTR {
   dealers = "Bayi",
 }
 
-export function ChartPie({ data, title }) {
+interface ChartPieProps {
+  data: Record<string, number>;
+}
+
+export function ChartPie({ data }: ChartPieProps) {
+  // Convert the data object into an array suitable for recharts
   const chart_data = Object.entries(data)
     .filter(([name]) => name !== "total")
     .map(([name, value]) => ({
@@ -37,33 +42,24 @@ export function ChartPie({ data, title }) {
     }));
 
   return (
-    <div className="w-full max-w-[500px] h-[300px] bg-white rounded-md shadow">
-      <div className="flex justify-between">
-        <span className=" p-1">{title}</span>
-        <span className="bg-gray-100 p-1 rounded">Toplam: {data.total}</span>
-      </div>
-      <ResponsiveContainer width="100%" height="100%">
-        <PieChart>
-          <Pie
-            data={chart_data}
-            dataKey="value"
-            nameKey="name"
-            label={true}
-            innerRadius="50%"
-          >
-            {chart_data.map((_, i) => (
-              <Cell key={i} fill={COLORS[i % COLORS.length]} />
-            ))}
-          </Pie>
-          <Tooltip
-            formatter={(value, name) => [
-              value,
-              TypeTR[name as keyof typeof TypeTR] ?? name,
-            ]}
-          />
-          <Legend formatter={(name) => TypeTR[name] ?? name}></Legend>
-        </PieChart>
-      </ResponsiveContainer>
-    </div>
+    <ResponsiveContainer width="100%" height={300}>
+      <PieChart>
+        <Pie
+          data={chart_data}
+          dataKey="value"
+          nameKey="name"
+          cx="50%"
+          cy="50%"
+          outerRadius={100}
+          label
+        >
+          {chart_data.map((_, index) => (
+            <Cell key={index} fill={COLORS[index % COLORS.length]} />
+          ))}
+        </Pie>
+        <Tooltip />
+        <Legend />
+      </PieChart>
+    </ResponsiveContainer>
   );
 }

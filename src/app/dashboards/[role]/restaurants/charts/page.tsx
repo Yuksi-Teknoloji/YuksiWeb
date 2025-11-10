@@ -1,6 +1,5 @@
 "use client";
 import * as React from "react";
-import { ChartLine } from "@/components/chart/RestaurantChart";
 import { getAuthToken } from "@/utils/auth";
 import { useSearchParams } from "next/navigation";
 
@@ -170,12 +169,7 @@ export default function Charts() {
           <span className="bg-gray-100 p-1 rounded">Toplam: </span>
         </div>
 
-        <ChartLine
-          startDate={startDate}
-          endDate={endDate}
-          option={option}
-          data={data}
-        />
+        
       </div>
     </div>
   );
