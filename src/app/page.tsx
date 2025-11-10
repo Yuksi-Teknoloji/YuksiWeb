@@ -17,10 +17,10 @@ export default async function Home() {
   // HeroCarousel Slide tipine map’le
   const slides = apiSlides.map(s => ({
     src: s.src,
-    link: s.link,
+    link: "",
     alt: s.title,
     title: s.title,        
-    description: s.description
+    description: ""
   }));
 
   return (
